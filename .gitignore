@@ -1,0 +1,11 @@
+data/raw/
+*.pdf
+*.bin
+*.safetensors
+.env
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints
+.vscode/
+.DS_Store
+logs/
