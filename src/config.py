@@ -129,13 +129,13 @@ class Settings(BaseSettings):
     # ==========================================
     # CORS SETTINGS
     # ==========================================
-    cors_origins: List[str] = Field(
+    cors_origins: Union[str, List[str]] = Field(
         default=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"],
         env="CORS_ORIGINS"
     )
     cors_allow_credentials: bool = Field(default=True, env="CORS_ALLOW_CREDENTIALS")
-    cors_allow_methods: List[str] = Field(default=["*"], env="CORS_ALLOW_METHODS")
-    cors_allow_headers: List[str] = Field(default=["*"], env="CORS_ALLOW_HEADERS")
+    cors_allow_methods: Union[str, List[str]] = Field(default=["*"], env="CORS_ALLOW_METHODS")
+    cors_allow_headers: Union[str, List[str]] = Field(default=["*"], env="CORS_ALLOW_HEADERS")
     
     @field_validator("cors_origins", mode='before')
     def validate_cors_origins(cls, v, info):
@@ -146,6 +146,8 @@ class Settings(BaseSettings):
             values = info
         if isinstance(v, str):
             v = [origin.strip() for origin in v.split(",")]
+        elif not isinstance(v, list):
+            v = [v] if v else []
         
         if values.get("app_env") == Environment.PRODUCTION:
             # Don't allow wildcard in production
@@ -158,12 +160,36 @@ class Settings(BaseSettings):
         
         return v
     
+    @field_validator("cors_allow_methods", mode='before')
+    def validate_cors_methods(cls, v):
+        """Parse comma-separated CORS methods"""
+        if isinstance(v, str):
+            v = [method.strip() for method in v.split(",")]
+        elif not isinstance(v, list):
+            v = [v] if v else ["*"]
+        return v
+    
+    @field_validator("cors_allow_headers", mode='before')
+    def validate_cors_headers(cls, v):
+        """Parse comma-separated CORS headers"""
+        if isinstance(v, str):
+            if v == "*":
+                return ["*"]
+            v = [header.strip() for header in v.split(",")]
+        elif not isinstance(v, list):
+            v = [v] if v else ["*"]
+        return v
+    
     # ==========================================
     # DATABASE SETTINGS
     # ==========================================
     database_url: Optional[str] = Field(
         default="postgresql://postgres:password@localhost:5432/teknofest_dev",
         env="DATABASE_URL"
+    )
+    async_database_url: Optional[str] = Field(
+        default="sqlite+aiosqlite:///./teknofest.db",
+        env="ASYNC_DATABASE_URL"
     )
     database_pool_size: int = Field(default=20, env="DATABASE_POOL_SIZE", ge=1, le=100)
     database_max_overflow: int = Field(default=40, env="DATABASE_MAX_OVERFLOW", ge=0, le=200)
@@ -320,9 +346,17 @@ class Settings(BaseSettings):
         """Check if running in production"""
         return self.app_env == Environment.PRODUCTION
     
+    def is_testing(self) -> bool:
+        """Check if running in testing mode"""
+        return self.app_env == Environment.TESTING
+    
     def is_development(self) -> bool:
-        """Check if running in development"""
+        """Check if running in development mode"""
         return self.app_env == Environment.DEVELOPMENT
+    
+    def is_staging(self) -> bool:
+        """Check if running in staging mode"""
+        return self.app_env == Environment.STAGING
     
     def get_database_url(self, hide_password: bool = True) -> str:
         """Get database URL with optional password hiding"""

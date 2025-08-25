@@ -18,10 +18,9 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import create_engine, event, pool, text
 from sqlalchemy.orm import sessionmaker, scoped_session, Session
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.pool import NullPool, QueuePool, StaticPool
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool, QueuePool, StaticPool, Pool
 from sqlalchemy.exc import DBAPIError, OperationalError, TimeoutError
-from sqlalchemy.pool import Pool
 
 from ..config import get_settings
 
@@ -143,19 +142,43 @@ def get_pool_config():
 
 
 # Create synchronous engine
+# Use appropriate pool based on testing mode
+sync_pool_config = get_pool_config()
+if settings.is_testing() and "sqlite" in settings.database_url:
+    # SQLite in testing needs special handling
+    sync_pool_config = {
+        "poolclass": StaticPool,
+        "connect_args": {"check_same_thread": False},
+        "pool_pre_ping": True,
+    }
+
 engine = create_engine(
     get_database_url(async_mode=False),
     echo=settings.database_echo,
     future=True,
-    **get_pool_config()
+    **sync_pool_config
 )
 
 # Create asynchronous engine
+# Note: Async engines need NullPool or StaticPool, not QueuePool
+# For async engines, we use NullPool in testing and StaticPool otherwise
+if settings.is_testing():
+    async_pool_config = {
+        "poolclass": NullPool,
+        "pool_pre_ping": True,
+    }
+else:
+    async_pool_config = {
+        "poolclass": StaticPool,
+        "pool_pre_ping": True,
+        "connect_args": {"check_same_thread": False} if "sqlite" in settings.database_url else {}
+    }
+
 async_engine = create_async_engine(
     get_database_url(async_mode=True),
     echo=settings.database_echo,
     future=True,
-    **get_pool_config()
+    **async_pool_config
 )
 
 

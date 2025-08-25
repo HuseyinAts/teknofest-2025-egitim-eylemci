@@ -1,0 +1,273 @@
+{
+  "morphology": [
+    {
+      "word": "evlerimizden",
+      "root": "evlerimizden",
+      "pos": "NOUN",
+      "morphemes": [
+        "evlerimizden"
+      ],
+      "vowel_harmony": true,
+      "syllables": [
+        "evv",
+        "vle",
+        "ri",
+        "mizz",
+        "zdenn"
+      ]
+    },
+    {
+      "word": "kitapları",
+      "root": "kit",
+      "pos": "NOUN",
+      "morphemes": [
+        "kit",
+        "a",
+        "p",
+        "lar",
+        "ı"
+      ],
+      "vowel_harmony": false,
+      "syllables": [
+        "ki",
+        "tapp",
+        "pla",
+        "rı"
+      ]
+    },
+    {
+      "word": "öğretmenlik",
+      "root": "öğretmenlik",
+      "pos": "NOUN",
+      "morphemes": [
+        "öğretmenlik"
+      ],
+      "vowel_harmony": true,
+      "syllables": [
+        "öğğ",
+        "ğrett",
+        "tmenn",
+        "nlikk"
+      ]
+    },
+    {
+      "word": "güzelleştirmek",
+      "root": "güzelleştirmek",
+      "pos": "NOUN",
+      "morphemes": [
+        "güzelleştirmek"
+      ],
+      "vowel_harmony": true,
+      "syllables": [
+        "gü",
+        "zell",
+        "lleşş",
+        "ştirr",
+        "rmekk"
+      ]
+    }
+  ],
+  "tokenizer": [
+    {
+      "text": "TEKNOFEST 2025",
+      "tokens": [
+        "T",
+        "E",
+        "K",
+        "N",
+        "O",
+        "F",
+        "E",
+        "S",
+        "T",
+        "Ġ",
+        "2",
+        "0",
+        "2",
+        "5"
+      ]
+    },
+    {
+      "text": "Türkçe NLP",
+      "tokens": [
+        "T",
+        "Ã",
+        "¼",
+        "r",
+        "k",
+        "Ã",
+        "§",
+        "#",
+        "#",
+        "e",
+        "Ġ",
+        "N",
+        "L",
+        "P"
+      ]
+    },
+    {
+      "text": "Eğitim teknolojileri",
+      "tokens": [
+        "E",
+        "Ä",
+        "Ł",
+        "i",
+        "t",
+        "i",
+        "m",
+        "Ġ",
+        "t",
+        "e",
+        "k",
+        "n",
+        "o",
+        "l",
+        "o",
+        "j",
+        "i",
+        "l",
+        "e",
+        "r",
+        "#",
+        "#",
+        "i"
+      ]
+    }
+  ],
+  "pipeline": [
+    {
+      "text": "Ankara Türkiye'nin başkentidir.",
+      "tokens": [
+        "Ankara",
+        "Türkiye'nin",
+        "başkentidir",
+        "."
+      ],
+      "lemmas": [
+        "ankara",
+        "türk",
+        "başk",
+        "."
+      ],
+      "stems": [
+        "ankara",
+        "türk",
+        "başk",
+        "."
+      ],
+      "sentiment": {
+        "label": "NEUTRAL",
+        "confidence": 0.5
+      },
+      "word_count": 4,
+      "entities": 1
+    },
+    {
+      "text": "Öğrenciler yarın sınava girecekler.",
+      "tokens": [
+        "Öğrenciler",
+        "yarın",
+        "sınava",
+        "girecekler",
+        "."
+      ],
+      "lemmas": [
+        "öğrenciler",
+        "yarın",
+        "sınava",
+        "girecekler",
+        "."
+      ],
+      "stems": [
+        "öğrenciler",
+        "yarın",
+        "sınava",
+        "girecekler",
+        "."
+      ],
+      "sentiment": {
+        "label": "NEUTRAL",
+        "confidence": 0.5
+      },
+      "word_count": 5,
+      "entities": 0
+    },
+    {
+      "text": "Bu kitap çok güzel ve faydalı.",
+      "tokens": [
+        "Bu",
+        "kitap",
+        "çok",
+        "güzel",
+        "ve",
+        "faydalı",
+        "."
+      ],
+      "lemmas": [
+        "bu",
+        "kit",
+        "çok",
+        "güzel",
+        "ve",
+        "faydalı",
+        "."
+      ],
+      "stems": [
+        "bu",
+        "kit",
+        "çok",
+        "güzel",
+        "ve",
+        "faydalı",
+        "."
+      ],
+      "sentiment": {
+        "label": "POSITIVE",
+        "confidence": 1.0
+      },
+      "word_count": 7,
+      "entities": 0
+    }
+  ],
+  "special_features": {
+    "consonant_mutations": [
+      {
+        "base": "kitap",
+        "mutated": "kitab"
+      },
+      {
+        "base": "ağaç",
+        "mutated": "ağac"
+      },
+      {
+        "base": "renk",
+        "mutated": "renğ"
+      }
+    ],
+    "vowel_drops": [
+      {
+        "word": "burun",
+        "dropped": "burn",
+        "did_drop": true
+      },
+      {
+        "word": "ağız",
+        "dropped": "ağz",
+        "did_drop": true
+      },
+      {
+        "word": "boyun",
+        "dropped": "boyn",
+        "did_drop": true
+      }
+    ],
+    "stopword_removal": {
+      "original": "Bu ve şu kitaplar çok güzel",
+      "filtered": [
+        "kitaplar",
+        "güzel"
+      ]
+    }
+  }
+}
