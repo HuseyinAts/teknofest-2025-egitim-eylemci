@@ -1,0 +1,896 @@
+version: '3.8'
+
+x-app-common: &app-common
+  build:
+    context: .
+    dockerfile: Dockerfile.production
+    args:
+      - BUILD_ENV=production
+  env_file:
+    - .env.production
+  networks:
+    - app-network
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+      tag: "{{.Name}}"
+
+x-worker-common: &worker-common
+  <<: *app-common
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  deploy:
+    restart_policy:
+      condition: any
+      delay: 5s
+      max_attempts: 3
+      window: 120s
+
+services:
+  # ==========================================
+  # LOAD BALANCER - HAProxy
+  # ==========================================
+  haproxy:
+    image: haproxy:2.8-alpine
+    container_name: teknofest-haproxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8404:8404"  # Stats page
+    volumes:
+      - ./deploy/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./ssl:/etc/ssl/certs:ro
+      - haproxy_socket:/var/run/haproxy
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # ==========================================
+  # API GATEWAY - Kong
+  # ==========================================
+  kong:
+    image: kong:3.4-alpine
+    container_name: teknofest-kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: "/kong/declarative/kong.yml"
+      KONG_PROXY_ACCESS_LOG: "/dev/stdout"
+      KONG_ADMIN_ACCESS_LOG: "/dev/stdout"
+      KONG_PROXY_ERROR_LOG: "/dev/stderr"
+      KONG_ADMIN_ERROR_LOG: "/dev/stderr"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    volumes:
+      - ./deploy/kong:/kong/declarative:ro
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ==========================================
+  # API WORKERS (Auto-scaling Group)
+  # ==========================================
+  api:
+    <<: *worker-common
+    container_name: teknofest-api-primary
+    command: >
+      sh -c "
+      python manage_db.py migrate &&
+      gunicorn src.app:app 
+        --config gunicorn_config.py
+        --workers ${API_WORKERS:-4}
+        --worker-class uvicorn.workers.UvicornWorker
+        --bind 0.0.0.0:8000
+        --max-requests 1000
+        --max-requests-jitter 100
+        --timeout 30
+        --graceful-timeout 30
+        --keepalive 5
+        --access-logfile -
+        --error-logfile -
+        --log-level info
+        --statsd-host prometheus-pushgateway:9091
+        --statsd-prefix teknofest.api
+      "
+    environment:
+      - WORKER_ID=primary
+      - APP_ENV=production
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - ENABLE_PROFILING=true
+    volumes:
+      - ./data:/app/data
+      - api_logs:/var/log/teknofest
+      - prometheus_multiproc:/tmp/prometheus
+    ports:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      mode: replicated
+      replicas: 4
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        monitor: 30s
+        max_failure_ratio: 0.3
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8000"
+      - "prometheus.io/path=/metrics"
+
+  # ==========================================
+  # CELERY WORKERS WITH AUTO-SCALING
+  # ==========================================
+  celery-worker-default:
+    <<: *worker-common
+    container_name: teknofest-celery-default
+    command: >
+      celery -A src.celery_app worker
+        --loglevel=info
+        --concurrency=4
+        --autoscale=8,2
+        --max-tasks-per-child=1000
+        --max-memory-per-child=512000
+        --time-limit=600
+        --soft-time-limit=300
+        -Q default,priority.low
+        -n worker-default@%h
+        --without-gossip
+        --without-mingle
+        --without-heartbeat
+    environment:
+      - WORKER_TYPE=default
+      - C_FORCE_ROOT=true
+      - CELERY_WORKER_POOL=prefork
+      - CELERY_OPTIMIZATION=fair
+    volumes:
+      - ./data:/app/data
+      - celery_logs:/var/log/celery
+    deploy:
+      mode: replicated
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  celery-worker-ai:
+    <<: *worker-common
+    container_name: teknofest-celery-ai
+    command: >
+      celery -A src.celery_app worker
+        --loglevel=info
+        --concurrency=2
+        --autoscale=4,1
+        --max-tasks-per-child=100
+        --max-memory-per-child=2048000
+        --time-limit=1800
+        --soft-time-limit=1200
+        -Q ai_queue,priority.high
+        -n worker-ai@%h
+    environment:
+      - WORKER_TYPE=ai
+      - C_FORCE_ROOT=true
+      - CELERY_WORKER_POOL=prefork
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - OMP_NUM_THREADS=4
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - celery_logs:/var/log/celery
+    deploy:
+      mode: replicated
+      replicas: 2
+      placement:
+        constraints:
+          - node.labels.gpu == true
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  celery-worker-data:
+    <<: *worker-common
+    container_name: teknofest-celery-data
+    command: >
+      celery -A src.celery_app worker
+        --loglevel=info
+        --concurrency=6
+        --autoscale=10,3
+        --max-tasks-per-child=500
+        -Q data_queue,etl_queue
+        -n worker-data@%h
+    environment:
+      - WORKER_TYPE=data
+      - C_FORCE_ROOT=true
+    volumes:
+      - ./data:/app/data
+      - celery_logs:/var/log/celery
+    deploy:
+      mode: replicated
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+
+  celery-beat:
+    <<: *worker-common
+    container_name: teknofest-celery-beat
+    command: >
+      celery -A src.celery_app beat
+        --loglevel=info
+        --scheduler redbeat.RedBeatScheduler
+        --max-interval 10
+    environment:
+      - C_FORCE_ROOT=true
+    volumes:
+      - ./data:/app/data
+      - celery_logs:/var/log/celery
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  celery-flower:
+    <<: *worker-common
+    container_name: teknofest-flower
+    command: >
+      celery -A src.celery_app flower
+        --port=5555
+        --url_prefix=flower
+        --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
+        --auto_refresh=true
+        --purge_offline_workers=300
+    ports:
+      - "5555:5555"
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ==========================================
+  # WORKER ORCHESTRATOR
+  # ==========================================
+  worker-orchestrator:
+    <<: *app-common
+    container_name: teknofest-orchestrator
+    command: python -m src.orchestrator.main
+    environment:
+      - ORCHESTRATOR_MODE=production
+      - MIN_API_WORKERS=2
+      - MAX_API_WORKERS=20
+      - MIN_CELERY_WORKERS=1
+      - MAX_CELERY_WORKERS=10
+      - SCALE_UP_THRESHOLD=80
+      - SCALE_DOWN_THRESHOLD=30
+      - HEALTH_CHECK_INTERVAL=30
+      - METRICS_COLLECTION_INTERVAL=10
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./configs:/app/configs
+      - orchestrator_data:/var/lib/orchestrator
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # ==========================================
+  # DATABASES (Primary-Replica Setup)
+  # ==========================================
+  postgres-primary:
+    image: postgres:15-alpine
+    container_name: teknofest-postgres-primary
+    environment:
+      - POSTGRES_USER=${DB_USER:-teknofest}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-teknofest2025}
+      - POSTGRES_DB=${DB_NAME:-teknofest_db}
+      - POSTGRES_REPLICATION_MODE=master
+      - POSTGRES_REPLICATION_USER=replicator
+      - POSTGRES_REPLICATION_PASSWORD=${DB_REPL_PASSWORD:-repl2025}
+      - POSTGRES_MAX_CONNECTIONS=500
+      - POSTGRES_SHARED_BUFFERS=512MB
+      - POSTGRES_EFFECTIVE_CACHE_SIZE=2GB
+      - POSTGRES_MAINTENANCE_WORK_MEM=256MB
+      - POSTGRES_CHECKPOINT_COMPLETION_TARGET=0.9
+      - POSTGRES_WAL_BUFFERS=32MB
+      - POSTGRES_DEFAULT_STATISTICS_TARGET=100
+      - POSTGRES_RANDOM_PAGE_COST=1.1
+      - POSTGRES_EFFECTIVE_IO_CONCURRENCY=200
+      - POSTGRES_WORK_MEM=8MB
+      - POSTGRES_HUGE_PAGES=try
+      - POSTGRES_MAX_WAL_SIZE=2GB
+      - POSTGRES_MIN_WAL_SIZE=512MB
+      - POSTGRES_SYNCHRONOUS_COMMIT=on
+      - POSTGRES_WAL_LEVEL=replica
+      - POSTGRES_MAX_WAL_SENDERS=10
+      - POSTGRES_MAX_REPLICATION_SLOTS=10
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ./deploy/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./deploy/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./scripts/init_replication.sql:/docker-entrypoint-initdb.d/02-replication.sql:ro
+      - postgres_backups:/backups
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-teknofest} && psql -U ${DB_USER:-teknofest} -d ${DB_NAME:-teknofest_db} -c 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+
+  postgres-replica:
+    image: postgres:15-alpine
+    container_name: teknofest-postgres-replica
+    environment:
+      - POSTGRES_REPLICATION_MODE=slave
+      - POSTGRES_MASTER_HOST=postgres-primary
+      - POSTGRES_MASTER_PORT=5432
+      - POSTGRES_REPLICATION_USER=replicator
+      - POSTGRES_REPLICATION_PASSWORD=${DB_REPL_PASSWORD:-repl2025}
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      mode: replicated
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: teknofest-pgbouncer
+    environment:
+      - DATABASES_HOST=postgres-primary
+      - DATABASES_PORT=5432
+      - DATABASES_DBNAME=${DB_NAME:-teknofest_db}
+      - DATABASES_USER=${DB_USER:-teknofest}
+      - DATABASES_PASSWORD=${DB_PASSWORD:-teknofest2025}
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=1000
+      - DEFAULT_POOL_SIZE=25
+      - MIN_POOL_SIZE=5
+      - RESERVE_POOL_SIZE=5
+      - RESERVE_POOL_TIMEOUT=3
+      - SERVER_LIFETIME=3600
+      - SERVER_IDLE_TIMEOUT=600
+    ports:
+      - "6432:6432"
+    networks:
+      - app-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ==========================================
+  # CACHING & MESSAGE BROKERS
+  # ==========================================
+  redis-master:
+    image: redis:7-alpine
+    container_name: teknofest-redis-master
+    command: >
+      redis-server
+        --maxmemory 2gb
+        --maxmemory-policy allkeys-lru
+        --appendonly yes
+        --appendfsync everysec
+        --tcp-backlog 511
+        --timeout 0
+        --tcp-keepalive 300
+        --databases 16
+        --save 900 1
+        --save 300 10
+        --save 60 10000
+        --rdbcompression yes
+        --dir /data
+        --requirepass ${REDIS_PASSWORD:-redis2025}
+    volumes:
+      - redis_master_data:/data
+      - ./deploy/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  redis-replica:
+    image: redis:7-alpine
+    container_name: teknofest-redis-replica
+    command: >
+      redis-server
+        --replicaof redis-master 6379
+        --masterauth ${REDIS_PASSWORD:-redis2025}
+        --requirepass ${REDIS_PASSWORD:-redis2025}
+    volumes:
+      - redis_replica_data:/data
+    networks:
+      - app-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      mode: replicated
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  redis-sentinel:
+    image: redis:7-alpine
+    container_name: teknofest-redis-sentinel
+    command: redis-sentinel /etc/redis-sentinel/sentinel.conf
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis-sentinel/sentinel.conf:ro
+    networks:
+      - app-network
+    depends_on:
+      - redis-master
+      - redis-replica
+    restart: unless-stopped
+    deploy:
+      mode: replicated
+      replicas: 3
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: teknofest-rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-admin}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-rabbitmq2025}
+      - RABBITMQ_DEFAULT_VHOST=teknofest
+      - RABBITMQ_VM_MEMORY_HIGH_WATERMARK=0.8
+      - RABBITMQ_DISK_FREE_LIMIT=2GB
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./deploy/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./deploy/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # ==========================================
+  # MONITORING & OBSERVABILITY
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: teknofest-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: teknofest-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-grafana2025}
+      - GF_INSTALL_PLUGINS=redis-datasource,postgres-datasource,cloudflare-app
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ALERTING_ENABLED=true
+      - GF_UNIFIED_ALERTING_ENABLED=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - app-network
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: teknofest-loki
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: teknofest-promtail
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - api_logs:/var/log/teknofest:ro
+      - celery_logs:/var/log/celery:ro
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+    networks:
+      - app-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: teknofest-tempo
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./monitoring/tempo/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "3200:3200"   # tempo
+      - "4317:4317"   # otlp grpc
+      - "4318:4318"   # otlp http
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: teknofest-otel-collector
+    command: ["--config=/etc/otel-collector.yml"]
+    volumes:
+      - ./monitoring/otel/otel-collector.yml:/etc/otel-collector.yml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: teknofest-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - ES_SERVER_URLS=http://elasticsearch:9200
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger collector
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ==========================================
+  # ELASTICSEARCH & KIBANA
+  # ==========================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    container_name: teknofest-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=teknofest-cluster
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.2
+    container_name: teknofest-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - app-network
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  # ==========================================
+  # ALERTING
+  # ==========================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: teknofest-alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+      - '--cluster.advertise-address=0.0.0.0:9093'
+    volumes:
+      - ./monitoring/alertmanager:/etc/alertmanager:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "9093:9093"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ==========================================
+  # HEALTH DASHBOARD
+  # ==========================================
+  healthchecks:
+    image: healthchecks/healthchecks:latest
+    container_name: teknofest-healthchecks
+    environment:
+      - SECRET_KEY=${HEALTHCHECKS_SECRET:-change-me-in-production}
+      - SITE_ROOT=http://localhost:8080
+      - SITE_NAME=TEKNOFEST Health
+      - DEFAULT_FROM_EMAIL=health@teknofest.local
+      - EMAIL_USE_TLS=False
+      - ALLOWED_HOSTS=*
+      - DB=postgres
+      - DB_HOST=postgres-primary
+      - DB_PORT=5432
+      - DB_NAME=healthchecks
+      - DB_USER=${DB_USER:-teknofest}
+      - DB_PASSWORD=${DB_PASSWORD:-teknofest2025}
+    ports:
+      - "8080:8000"
+    networks:
+      - app-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================
+  # SERVICE MESH - CONSUL
+  # ==========================================
+  consul:
+    image: consul:latest
+    container_name: teknofest-consul
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    volumes:
+      - consul_data:/consul/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ==========================================
+  # FRONTEND APPLICATION
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend/nextjs-app
+      dockerfile: Dockerfile.production
+      args:
+        - NODE_ENV=production
+    container_name: teknofest-frontend
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://haproxy
+      - NEXT_PUBLIC_WS_URL=ws://haproxy/ws
+    ports:
+      - "3000"
+    networks:
+      - app-network
+    restart: unless-stopped
+    depends_on:
+      - haproxy
+    deploy:
+      mode: replicated
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ==========================================
+# NETWORKS
+# ==========================================
+networks:
+  app-network:
+    driver: overlay
+    attachable: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+    driver_opts:
+      encrypted: "true"
+      com.docker.network.driver.mtu: 1450
+
+# ==========================================
+# VOLUMES
+# ==========================================
+volumes:
+  postgres_primary_data:
+    driver: local
+  postgres_replica_data:
+    driver: local
+  postgres_backups:
+    driver: local
+  redis_master_data:
+    driver: local
+  redis_replica_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  api_logs:
+    driver: local
+  celery_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  prometheus_multiproc:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
+  tempo_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  consul_data:
+    driver: local
+  orchestrator_data:
+    driver: local
+  haproxy_socket:
+    driver: local

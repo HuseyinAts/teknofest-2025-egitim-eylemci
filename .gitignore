@@ -1,16 +1,6 @@
-data/raw/
-*.pdf
-*.bin
-*.safetensors
-.env
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-.ipynb_checkpoints
-.vscode/
-.DS_Store
-logs/
-
-# Byte-compiled / optimized / DLL files
 *$py.class
 
 # C extensions
@@ -160,3 +150,123 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# IDE specific
+.idea/
+.vscode/
+*.code-workspace
+*.iml
+.project
+.classpath
+.settings/
+
+# OS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Model files
+models/**/*.bin
+models/**/*.pt
+models/**/*.pth
+models/**/*.safetensors
+models/**/*.h5
+models/**/*.ckpt
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.h5
+*.pdf
+
+# Data files (keep structure, ignore large files)
+data/raw/**
+!data/raw/.gitkeep
+data/processed/large_files/**
+!data/processed/.gitkeep
+!data/processed/competition_dataset.csv
+!data/processed/competition_dataset.json
+!data/processed/competition_dataset.jsonl
+data/synthetic/**
+!data/synthetic/.gitkeep
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+resources.db
+students.db
+teknofest.db
+
+# Log files
+logs/
+*.log
+*.log.*
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.staging
+.env.production.local
+
+# Keep these
+!.env.example
+!.env.production
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.~*
+nul
+
+# Cache directories
+.cache/
+*.cache
+.ipynb_checkpoints/
+model_cache/
+huggingface_cache/
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+credentials/
+
+# Docker volumes
+docker-volumes/
+
+# Test databases
+test_*.db
+*_test.db
+
+# Backup files
+backup/
+*.backup
+
+# Node modules (if any frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Custom project specific
+claude_desktop_config_local.json

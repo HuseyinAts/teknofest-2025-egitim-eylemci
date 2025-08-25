@@ -1,0 +1,305 @@
+{
+  "qwen3": {
+    "kısa_turkce": {
+      "token_count": 10,
+      "tokenization_time_ms": 0.99945068359375,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.15234375,
+      "first_10_tokens": [
+        "27814",
+        "10796",
+        "64",
+        "11",
+        "17580",
+        "3862",
+        "4835",
+        "38511",
+        "89",
+        "30"
+      ],
+      "decode_match": true
+    },
+    "orta_turkce": {
+      "token_count": 42,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "64461",
+        "11257",
+        "63934",
+        "5888",
+        "258",
+        "20548",
+        "7370",
+        "285",
+        "6853",
+        "99439"
+      ],
+      "decode_match": true
+    },
+    "uzun_turkce": {
+      "token_count": 149,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.01171875,
+      "first_10_tokens": [
+        "36",
+        "11257",
+        "275",
+        "318",
+        "81126",
+        "10216",
+        "73",
+        "5888",
+        "72",
+        "73662"
+      ],
+      "decode_match": true
+    },
+    "teknik_turkce": {
+      "token_count": 29,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "22333",
+        "21579",
+        "5320",
+        "18682",
+        "21579",
+        "453",
+        "5746",
+        "73384",
+        "8093",
+        "3862"
+      ],
+      "decode_match": true
+    },
+    "egitim_domain": {
+      "token_count": 33,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "43",
+        "67499",
+        "17372",
+        "11257",
+        "63934",
+        "5888",
+        "72",
+        "34271",
+        "20750",
+        "3862"
+      ],
+      "decode_match": true
+    },
+    "mixed_lang": {
+      "token_count": 28,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.01171875,
+      "first_10_tokens": [
+        "31380",
+        "2068",
+        "81101",
+        "19371",
+        "28074",
+        "364",
+        "27814",
+        "10796",
+        "64",
+        "423"
+      ],
+      "decode_match": true
+    },
+    "matematik": {
+      "token_count": 39,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "87",
+        "61",
+        "17",
+        "489",
+        "379",
+        "61",
+        "17",
+        "284",
+        "436",
+        "61"
+      ],
+      "decode_match": true
+    },
+    "tarih_saat": {
+      "token_count": 34,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.00390625,
+      "first_10_tokens": [
+        "5479",
+        "75",
+        "519",
+        "3862",
+        "220",
+        "868",
+        "83552",
+        "587",
+        "220",
+        "2366"
+      ],
+      "decode_match": true
+    }
+  },
+  "turkish_mixtral": {
+    "kısa_turkce": {
+      "token_count": 7,
+      "tokenization_time_ms": 1.1625289916992188,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0546875,
+      "first_10_tokens": [
+        "▁Merhaba",
+        ",",
+        "▁nasıl",
+        "sınız",
+        "?"
+      ],
+      "decode_match": true
+    },
+    "orta_turkce": {
+      "token_count": 17,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0078125,
+      "first_10_tokens": [
+        "▁Öğrencilerin",
+        "▁kişisel",
+        "leştirilmiş",
+        "▁öğrenme",
+        "▁yolculuğ",
+        "unda",
+        "▁yapay",
+        "▁zeka",
+        "▁destekli",
+        "▁adap"
+      ],
+      "decode_match": true
+    },
+    "uzun_turkce": {
+      "token_count": 69,
+      "tokenization_time_ms": 1.0662078857421875,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.02734375,
+      "first_10_tokens": [
+        "▁Eğitim",
+        "▁teknolojileri",
+        "▁alanında",
+        "▁gerçekleştir",
+        "ilen",
+        "▁son",
+        "▁araştırmalar",
+        ",",
+        "▁yapay",
+        "▁zeka"
+      ],
+      "decode_match": false
+    },
+    "teknik_turkce": {
+      "token_count": 25,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "▁Mac",
+        "hine",
+        "▁Le",
+        "ar",
+        "ning",
+        "▁ve",
+        "▁De",
+        "ep",
+        "▁Le",
+        "ar"
+      ],
+      "decode_match": true
+    },
+    "egitim_domain": {
+      "token_count": 20,
+      "tokenization_time_ms": 1.0037422180175781,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "▁Lisans",
+        "▁öğrencileri",
+        "▁için",
+        "▁hazırlanan",
+        "▁bu",
+        "▁Ph",
+        "D",
+        "▁seviy",
+        "esindeki",
+        "▁içerik"
+      ],
+      "decode_match": true
+    },
+    "mixed_lang": {
+      "token_count": 24,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "▁P",
+        "ython",
+        "▁programlama",
+        "▁dilinde",
+        "▁'",
+        "Mer",
+        "haba",
+        "▁Dünya",
+        "'",
+        "▁yazdır"
+      ],
+      "decode_match": true
+    },
+    "matematik": {
+      "token_count": 32,
+      "tokenization_time_ms": 0.0,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.0,
+      "first_10_tokens": [
+        "▁x",
+        "^",
+        "<NUMBER>",
+        "▁+",
+        "▁y",
+        "^",
+        "<NUMBER>",
+        "▁=",
+        "▁r",
+        "^"
+      ],
+      "decode_match": false
+    },
+    "tarih_saat": {
+      "token_count": 23,
+      "tokenization_time_ms": 1.003265380859375,
+      "decode_time_ms": 0.0,
+      "memory_used_mb": 0.00390625,
+      "first_10_tokens": [
+        "▁Toplantı",
+        "▁",
+        "<NUMBER>",
+        "▁Ocak",
+        "▁",
+        "<YEAR>",
+        "▁tarihinde",
+        "▁saat",
+        "▁",
+        "<NUMBER>"
+      ],
+      "decode_match": false
+    }
+  }
+}

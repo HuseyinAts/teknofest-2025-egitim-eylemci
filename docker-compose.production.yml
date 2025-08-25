@@ -1,0 +1,435 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: teknofest-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-teknofest}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.utf8"
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME:-teknofest}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: teknofest-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --tcp-keepalive 60
+      --timeout 300
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - ENVIRONMENT=production
+    image: teknofest/backend:${VERSION:-latest}
+    container_name: teknofest-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-teknofest}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-40}
+      # Redis
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # AI Model
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
+      MODEL_NAME: ${MODEL_NAME:-Huseyin/teknofest-2025-turkish-edu-v2}
+      MODEL_CACHE_DIR: /models/cache
+      # Application
+      ENVIRONMENT: production
+      VERSION: ${VERSION:-1.0.0}
+      SECRET_KEY: ${SECRET_KEY}
+      API_SECRET_KEY: ${API_SECRET_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      # Monitoring
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FILE: /var/log/teknofest/backend.log
+      JSON_LOGS: true
+      JAEGER_ENABLED: true
+      JAEGER_HOST: jaeger
+      JAEGER_PORT: 6831
+      # CORS
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # Workers
+      WORKERS: ${WORKERS:-4}
+      # Rate Limiting
+      RATE_LIMIT_ENABLED: true
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-100}
+      RATE_LIMIT_PERIOD: ${RATE_LIMIT_PERIOD:-60}
+    volumes:
+      - ./src:/app/src:ro
+      - ./backend:/app/backend:ro
+      - ./configs:/app/configs:ro
+      - ./data/processed:/app/data/processed:ro
+      - model_cache:/models/cache
+      - logs:/var/log/teknofest
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      replicas: ${BACKEND_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        monitor: 60s
+        max_failure_ratio: 0.3
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+  # MCP Server
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+      args:
+        - ENVIRONMENT=production
+    image: teknofest/mcp-server:${VERSION:-latest}
+    container_name: teknofest-mcp
+    depends_on:
+      - backend
+    environment:
+      API_URL: http://backend:8000
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
+      MODEL_NAME: ${MODEL_NAME:-Huseyin/teknofest-2025-turkish-edu-v2}
+      MODEL_CACHE_DIR: /models/cache
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKERS: ${MCP_WORKERS:-2}
+    volumes:
+      - ./src/mcp_server:/app/src/mcp_server:ro
+      - model_cache:/models/cache
+      - logs:/var/log/teknofest
+    ports:
+      - "${MCP_PORT:-8080}:8080"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      replicas: ${MCP_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  # Nginx Load Balancer & Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: teknofest-nginx
+    depends_on:
+      - backend
+      - mcp-server
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: teknofest-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: teknofest-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-clock-panel
+      - GF_SERVER_ROOT_URL=${GRAFANA_URL:-http://localhost:3000}
+      - GF_SMTP_ENABLED=${SMTP_ENABLED:-false}
+      - GF_SMTP_HOST=${SMTP_HOST}
+      - GF_SMTP_USER=${SMTP_USER}
+      - GF_SMTP_PASSWORD=${SMTP_PASSWORD}
+      - GF_SMTP_FROM_ADDRESS=${SMTP_FROM}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  loki:
+    image: grafana/loki:latest
+    container_name: teknofest-loki
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: teknofest-promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - logs:/var/log/teknofest:ro
+    depends_on:
+      - loki
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: teknofest-alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--cluster.listen-address='
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: teknofest-jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+    volumes:
+      - jaeger_data:/badger
+    ports:
+      - "${JAEGER_AGENT_PORT:-6831}:6831/udp"
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${JAEGER_COLLECTOR_PORT:-14268}:14268"
+      - "${OTLP_GRPC_PORT:-4317}:4317"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Backup Service
+  postgres-backup:
+    image: postgres:15-alpine
+    container_name: teknofest-postgres-backup
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${DB_NAME:-teknofest}
+      PGUSER: ${DB_USER}
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    command: >
+      sh -c "while true; do
+        /backup.sh;
+        sleep 86400;
+      done"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+networks:
+  teknofest-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  model_cache:
+    driver: local
+  logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  jaeger_data:
+    driver: local
+  nginx_cache:
+    driver: local
+  nginx_logs:
+    driver: local

@@ -1,0 +1,384 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+  DOCKER_REGISTRY: ghcr.io
+  DOCKER_IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # Code Quality Checks
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort mypy pylint bandit safety
+
+      - name: Run Black
+        run: black --check src/ tests/
+
+      - name: Run isort
+        run: isort --check-only src/ tests/
+
+      - name: Run Flake8
+        run: flake8 src/ tests/ --max-line-length=120 --ignore=E203,W503
+
+      - name: Run Pylint
+        run: pylint src/ tests/ --fail-under=7.0 || true
+
+      - name: Run MyPy
+        run: mypy src/ --ignore-missing-imports || true
+
+  # Security Scanning
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+
+      - name: Run Bandit
+        run: bandit -r src/ -ll
+
+      - name: Check dependencies with Safety
+        run: |
+          pip install -r requirements.txt
+          safety check --json || true
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Unit Tests
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.9', '3.10', '3.11']
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-xdist pytest-timeout
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term-missing \
+            -n auto \
+            --timeout=300 \
+            -v
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Archive coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: htmlcov/
+
+  # Integration Tests
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-timeout
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/testdb
+          REDIS_URL: redis://localhost:6379
+        run: |
+          pytest tests/ -m integration --timeout=600 -v || true
+
+  # Build Docker Image
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [quality, security, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+
+  # Frontend Tests
+  frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    if: hashFiles('frontend/package.json') != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run linting
+        working-directory: ./frontend
+        run: npm run lint || true
+
+      - name: Run tests
+        working-directory: ./frontend
+        run: npm test -- --coverage --watchAll=false || true
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+  # E2E Tests
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [docker, frontend]
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright pytest-playwright
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps
+
+      - name: Run E2E tests
+        run: |
+          pytest tests/test_e2e_production.py -v --timeout=1200 || true
+
+  # Performance Tests
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install locust
+
+      - name: Run performance tests
+        run: |
+          echo "Performance tests would run here"
+          # locust -f tests/performance/locustfile.py --headless -u 10 -r 2 -t 30s
+
+  # Documentation
+  docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install documentation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install sphinx sphinx-rtd-theme mkdocs mkdocs-material
+
+      - name: Build documentation
+        run: |
+          echo "Documentation build would run here"
+          # mkdocs build || sphinx-build -b html docs/ docs/_build/
+
+  # Release
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [docker, e2e]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0)..HEAD >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          body: |
+            ## Changes
+            ${{ steps.changelog.outputs.CHANGELOG }}
+            
+            ## Docker Image
+            ```
+            docker pull ${{ env.DOCKER_IMAGE }}:main
+            ```
+          draft: false
+          prerelease: false

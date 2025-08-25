@@ -1,0 +1,92 @@
+{
+  "common": {
+    "loading": "Loading",
+    "error": "Error",
+    "success": "Success",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "import": "Import",
+    "close": "Close",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "reset": "Reset",
+    "refresh": "Refresh"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "forgotPassword": "Forgot Password",
+    "resetPassword": "Reset Password",
+    "rememberMe": "Remember Me",
+    "loginSuccess": "Login successful",
+    "logoutSuccess": "Logout successful",
+    "registerSuccess": "Registration successful",
+    "invalidCredentials": "Invalid username or password"
+  },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "learningPath": "Learning Path",
+    "assessment": "Assessment",
+    "studyBuddy": "Study Buddy",
+    "content": "Content",
+    "analytics": "Analytics",
+    "profile": "Profile",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "welcome": "Welcome",
+    "todaysTasks": "Today's Tasks",
+    "progress": "Progress",
+    "achievements": "Achievements",
+    "recentActivity": "Recent Activity",
+    "quickActions": "Quick Actions"
+  },
+  "learningPath": {
+    "title": "My Learning Path",
+    "currentLevel": "Current Level",
+    "nextLesson": "Next Lesson",
+    "completedLessons": "Completed Lessons",
+    "upcomingLessons": "Upcoming Lessons",
+    "recommendedContent": "Recommended Content"
+  },
+  "assessment": {
+    "title": "Assessments",
+    "takeQuiz": "Take Quiz",
+    "viewResults": "View Results",
+    "performance": "Performance",
+    "strengths": "Strengths",
+    "weaknesses": "Areas for Improvement"
+  },
+  "profile": {
+    "title": "My Profile",
+    "personalInfo": "Personal Information",
+    "firstName": "First Name",
+    "lastName": "Last Name",
+    "grade": "Grade",
+    "school": "School",
+    "learningStyle": "Learning Style",
+    "updateProfile": "Update Profile"
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Account",
+    "notifications": "Notifications",
+    "privacy": "Privacy",
+    "language": "Language",
+    "theme": "Theme",
+    "darkMode": "Dark Mode",
+    "lightMode": "Light Mode"
+  }
+}

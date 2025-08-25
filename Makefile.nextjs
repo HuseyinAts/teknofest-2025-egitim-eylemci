@@ -1,0 +1,75 @@
+# Makefile for Next.js + Python Backend Production Deployment
+
+.PHONY: help build dev prod down clean logs test install
+
+help:
+	@echo "Available commands:"
+	@echo "  make install    - Install all dependencies"
+	@echo "  make dev        - Start development environment"
+	@echo "  make build      - Build production images"
+	@echo "  make prod       - Start production environment"
+	@echo "  make down       - Stop all containers"
+	@echo "  make clean      - Clean up containers and volumes"
+	@echo "  make logs       - Show container logs"
+	@echo "  make test       - Run all tests"
+
+install:
+	@echo "Installing backend dependencies..."
+	pip install -r requirements.txt
+	@echo "Installing frontend dependencies..."
+	cd frontend/nextjs-app && npm install --legacy-peer-deps
+
+dev:
+	@echo "Starting development environment..."
+	cd frontend/nextjs-app && npm run dev &
+	python src/app.py
+
+build:
+	@echo "Building production images..."
+	docker-compose -f docker-compose.nextjs.yml build
+
+prod:
+	@echo "Starting production environment..."
+	docker-compose -f docker-compose.nextjs.yml up -d
+	@echo "Application is running at http://localhost"
+
+down:
+	@echo "Stopping all containers..."
+	docker-compose -f docker-compose.nextjs.yml down
+
+clean:
+	@echo "Cleaning up containers and volumes..."
+	docker-compose -f docker-compose.nextjs.yml down -v
+	docker system prune -f
+
+logs:
+	docker-compose -f docker-compose.nextjs.yml logs -f
+
+test:
+	@echo "Running backend tests..."
+	pytest tests/ -v
+	@echo "Running frontend tests..."
+	cd frontend/nextjs-app && npm run test:ci
+
+# Database commands
+db-migrate:
+	@echo "Running database migrations..."
+	docker-compose -f docker-compose.nextjs.yml exec backend python manage.py migrate
+
+db-backup:
+	@echo "Creating database backup..."
+	docker-compose -f docker-compose.nextjs.yml exec postgres pg_dump -U teknofest teknofest_db > backup_$(shell date +%Y%m%d_%H%M%S).sql
+
+# Monitoring commands
+monitor:
+	@echo "Opening monitoring dashboard..."
+	docker-compose -f docker-compose.nextjs.yml exec backend python -m src.monitoring
+
+# SSL Certificate generation (for production)
+ssl-cert:
+	@echo "Generating SSL certificates..."
+	mkdir -p nginx/ssl
+	openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+		-keyout nginx/ssl/privkey.pem \
+		-out nginx/ssl/fullchain.pem \
+		-subj "/C=TR/ST=Istanbul/L=Istanbul/O=Teknofest/CN=localhost"

@@ -1,0 +1,233 @@
+version: '3.8'
+
+services:
+  # Node Exporter for system metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: teknofest-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+
+  # PostgreSQL Exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: teknofest-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-teknofest}?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: "/etc/postgres_exporter/queries.yaml"
+    volumes:
+      - ./monitoring/postgres-exporter/queries.yaml:/etc/postgres_exporter/queries.yaml:ro
+    ports:
+      - "9187:9187"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # Redis Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: teknofest-redis-exporter
+    environment:
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    ports:
+      - "9121:9121"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+
+  # Nginx Exporter
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: teknofest-nginx-exporter
+    command:
+      - '-nginx.scrape-uri=http://nginx/nginx_status'
+    ports:
+      - "9113:9113"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+
+  # Blackbox Exporter for endpoint monitoring
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: teknofest-blackbox-exporter
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    volumes:
+      - ./monitoring/blackbox-exporter/config.yml:/etc/blackbox_exporter/config.yml:ro
+    ports:
+      - "9115:9115"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+
+  # cAdvisor for container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: teknofest-cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # Grafana Loki for log aggregation (already in main docker-compose)
+  # Included here for reference
+  
+  # Tempo for distributed tracing
+  tempo:
+    image: grafana/tempo:latest
+    container_name: teknofest-tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./monitoring/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "3200:3200"   # tempo
+      - "4317:4317"   # otlp grpc
+      - "4318:4318"   # otlp http
+      - "9411:9411"   # zipkin
+      - "14268:14268" # jaeger ingest
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # Grafana Agent for metrics and logs collection
+  grafana-agent:
+    image: grafana/agent:latest
+    container_name: teknofest-grafana-agent
+    volumes:
+      - ./monitoring/grafana-agent/agent.yaml:/etc/agent-config/agent.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log:/var/log:ro
+    entrypoint:
+      - /bin/agent
+      - -config.file=/etc/agent-config/agent.yaml
+      - -prometheus.wal-directory=/tmp/agent/wal
+    ports:
+      - "12345:12345"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # Elasticsearch for advanced log analysis (optional)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: teknofest-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # Kibana for Elasticsearch visualization (optional)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: teknofest-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - teknofest-network
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+networks:
+  teknofest-network:
+    external: true
+
+volumes:
+  tempo_data:
+    driver: local
+  elasticsearch_data:
+    driver: local

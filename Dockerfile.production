@@ -1,0 +1,134 @@
+# Multi-stage production Dockerfile with optimizations
+FROM python:3.11-slim AS builder
+
+# Build arguments
+ARG BUILD_ENV=production
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    make \
+    cmake \
+    libpq-dev \
+    libssl-dev \
+    libffi-dev \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /build
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies with optimization
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt && \
+    pip wheel --no-cache-dir --wheel-dir /wheels \
+        gunicorn \
+        uvicorn[standard] \
+        psutil \
+        prometheus-client \
+        opentelemetry-api \
+        opentelemetry-sdk \
+        opentelemetry-instrumentation-fastapi \
+        aiodocker \
+        aioredis \
+        setproctitle
+
+# Production stage
+FROM python:3.11-slim
+
+# Labels for metadata
+LABEL maintainer="TEKNOFEST Team"
+LABEL version="1.0.0"
+LABEL description="TEKNOFEST 2025 Production API"
+
+# Install runtime dependencies and security updates
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    curl \
+    netcat-openbsd \
+    ca-certificates \
+    dumb-init \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
+# Create non-root user with specific UID/GID
+RUN groupadd -r -g 1000 teknofest && \
+    useradd -r -u 1000 -g teknofest -d /app -s /sbin/nologin teknofest
+
+# Set working directory
+WORKDIR /app
+
+# Copy wheels and install
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir /wheels/* && \
+    rm -rf /wheels /root/.cache
+
+# Copy application code with proper ownership
+COPY --chown=teknofest:teknofest . .
+
+# Create necessary directories and set permissions
+RUN mkdir -p \
+    /app/data \
+    /app/logs \
+    /app/tmp \
+    /tmp/prometheus \
+    /var/log/teknofest && \
+    chown -R teknofest:teknofest \
+    /app/data \
+    /app/logs \
+    /app/tmp \
+    /tmp/prometheus \
+    /var/log/teknofest && \
+    chmod 755 /app && \
+    chmod 755 /app/data && \
+    chmod 755 /app/logs
+
+# Security hardening
+RUN find /app -type f -name "*.py" -exec chmod 644 {} \; && \
+    find /app -type d -exec chmod 755 {} \;
+
+# Switch to non-root user
+USER teknofest
+
+# Environment variables
+ENV PATH=/home/teknofest/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    PYTHONHASHSEED=random \
+    APP_ENV=production \
+    PORT=8000 \
+    PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus \
+    OTEL_PYTHON_LOG_CORRELATION=true
+
+# Health check with detailed conditions
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8000}/health/live').read()" || exit 1
+
+# Expose ports
+EXPOSE 8000 9090
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Default command with production optimizations
+CMD ["sh", "-c", "gunicorn src.app:app \
+    --config gunicorn_config.py \
+    --bind 0.0.0.0:${PORT:-8000} \
+    --workers ${API_WORKERS:-4} \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --max-requests ${MAX_REQUESTS:-1000} \
+    --max-requests-jitter ${MAX_REQUESTS_JITTER:-100} \
+    --timeout ${TIMEOUT:-30} \
+    --graceful-timeout ${GRACEFUL_TIMEOUT:-30} \
+    --keepalive ${KEEPALIVE:-5} \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level ${LOG_LEVEL:-info}"]

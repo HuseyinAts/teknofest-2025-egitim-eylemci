@@ -1,0 +1,174 @@
+# Clean Code Refactoring Makefile
+# TEKNOFEST 2025 - Automated refactoring tasks
+
+.PHONY: help analyze restructure test quality clean install lint format security
+
+# Variables
+PYTHON := python3
+PIP := pip3
+PROJECT_PATH := .
+VENV := venv
+SRC_DIR := src
+TEST_DIR := tests
+
+# Colors for output
+RED := \033[0;31m
+GREEN := \033[0;32m
+YELLOW := \033[1;33m
+NC := \033[0m # No Color
+
+help: ## Show this help message
+	@echo "$(GREEN)Clean Code Refactoring - Available Commands:$(NC)"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(YELLOW)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(GREEN)Usage:$(NC) make [command]"
+
+install: ## Install project dependencies and development tools
+	@echo "$(YELLOW)Installing dependencies...$(NC)"
+	$(PIP) install -r requirements.txt
+	@echo "$(YELLOW)Installing development tools...$(NC)"
+	$(PIP) install pytest pytest-cov pytest-asyncio
+	$(PIP) install pylint black isort mypy
+	$(PIP) install radon bandit safety
+	@echo "$(GREEN)✓ Dependencies installed$(NC)"
+
+analyze: ## Analyze code for Clean Code violations
+	@echo "$(YELLOW)Analyzing code quality...$(NC)"
+	$(PYTHON) refactoring_tool.py analyze --path $(PROJECT_PATH) --output refactoring_report.json
+	@echo ""
+	@echo "$(YELLOW)Running Pylint...$(NC)"
+	-$(PYTHON) -m pylint $(SRC_DIR) --output-format=colorized
+	@echo ""
+	@echo "$(YELLOW)Checking Cyclomatic Complexity...$(NC)"
+	$(PYTHON) -m radon cc $(SRC_DIR) -s -nc
+	@echo ""
+	@echo "$(YELLOW)Checking Maintainability Index...$(NC)"
+	$(PYTHON) -m radon mi $(SRC_DIR) -s
+	@echo "$(GREEN)✓ Analysis complete$(NC)"
+
+restructure: ## Create Clean Architecture folder structure
+	@echo "$(YELLOW)Creating Clean Architecture structure...$(NC)"
+	$(PYTHON) refactoring_tool.py restructure --path $(PROJECT_PATH)
+	@echo "$(GREEN)✓ Project restructured$(NC)"
+
+test: ## Run all tests with coverage
+	@echo "$(YELLOW)Running tests with coverage...$(NC)"
+	$(PYTHON) -m pytest $(TEST_DIR) -v --cov=$(SRC_DIR) --cov-report=term-missing --cov-report=html
+	@echo "$(GREEN)✓ Tests complete. Coverage report: htmlcov/index.html$(NC)"
+
+test-unit: ## Run unit tests only
+	@echo "$(YELLOW)Running unit tests...$(NC)"
+	$(PYTHON) -m pytest $(TEST_DIR)/unit -v
+	@echo "$(GREEN)✓ Unit tests complete$(NC)"
+
+test-integration: ## Run integration tests only
+	@echo "$(YELLOW)Running integration tests...$(NC)"
+	$(PYTHON) -m pytest $(TEST_DIR)/integration -v
+	@echo "$(GREEN)✓ Integration tests complete$(NC)"
+
+lint: ## Run linting checks
+	@echo "$(YELLOW)Running linting checks...$(NC)"
+	@echo "Checking with Pylint..."
+	-$(PYTHON) -m pylint $(SRC_DIR) --output-format=colorized
+	@echo ""
+	@echo "Checking with MyPy..."
+	-$(PYTHON) -m mypy $(SRC_DIR) --ignore-missing-imports
+	@echo "$(GREEN)✓ Linting complete$(NC)"
+
+format: ## Format code with Black and isort
+	@echo "$(YELLOW)Formatting code with Black...$(NC)"
+	$(PYTHON) -m black $(SRC_DIR) $(TEST_DIR)
+	@echo "$(YELLOW)Organizing imports with isort...$(NC)"
+	$(PYTHON) -m isort $(SRC_DIR) $(TEST_DIR)
+	@echo "$(GREEN)✓ Code formatted$(NC)"
+
+format-check: ## Check code formatting without changes
+	@echo "$(YELLOW)Checking code format...$(NC)"
+	$(PYTHON) -m black $(SRC_DIR) $(TEST_DIR) --check
+	$(PYTHON) -m isort $(SRC_DIR) $(TEST_DIR) --check-only
+	@echo "$(GREEN)✓ Format check complete$(NC)"
+
+security: ## Run security checks
+	@echo "$(YELLOW)Running security checks...$(NC)"
+	@echo "Checking with Bandit..."
+	$(PYTHON) -m bandit -r $(SRC_DIR) -f json -o security_report.json
+	@echo ""
+	@echo "Checking dependencies with Safety..."
+	$(PYTHON) -m safety check --json
+	@echo "$(GREEN)✓ Security checks complete$(NC)"
+
+quality: analyze lint test ## Run all quality checks
+	@echo "$(GREEN)✓ All quality checks complete$(NC)"
+
+clean: ## Clean up generated files and caches
+	@echo "$(YELLOW)Cleaning up...$(NC)"
+	rm -rf __pycache__ .pytest_cache htmlcov .coverage
+	rm -rf $(SRC_DIR)/__pycache__ $(TEST_DIR)/__pycache__
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete
+	rm -f refactoring_report.json security_report.json
+	@echo "$(GREEN)✓ Cleanup complete$(NC)"
+
+metrics: ## Generate code metrics report
+	@echo "$(YELLOW)Generating code metrics...$(NC)"
+	@echo "Lines of Code:"
+	@find $(SRC_DIR) -name "*.py" -type f -exec wc -l {} + | sort -rn | head -20
+	@echo ""
+	@echo "Complexity Metrics:"
+	$(PYTHON) -m radon cc $(SRC_DIR) --total-average
+	@echo ""
+	@echo "Maintainability Index:"
+	$(PYTHON) -m radon mi $(SRC_DIR) --show
+	@echo "$(GREEN)✓ Metrics generated$(NC)"
+
+refactor-service: ## Generate a new service template (usage: make refactor-service SERVICE=MyService)
+ifndef SERVICE
+	@echo "$(RED)Error: SERVICE variable required$(NC)"
+	@echo "Usage: make refactor-service SERVICE=MyService"
+else
+	@echo "$(YELLOW)Generating service template for $(SERVICE)...$(NC)"
+	$(PYTHON) refactoring_tool.py generate --service $(SERVICE) --path $(PROJECT_PATH)
+	@echo "$(GREEN)✓ Service template generated$(NC)"
+endif
+
+migration-plan: ## Generate migration plan from current to clean architecture
+	@echo "$(YELLOW)Generating migration plan...$(NC)"
+	@echo "Current Structure Analysis:" > migration_plan.md
+	@echo "\`\`\`" >> migration_plan.md
+	@tree $(SRC_DIR) -d -L 2 >> migration_plan.md 2>/dev/null || find $(SRC_DIR) -type d -maxdepth 2 | sed 's|$(SRC_DIR)/||' >> migration_plan.md
+	@echo "\`\`\`" >> migration_plan.md
+	@echo "" >> migration_plan.md
+	@echo "## Migration Steps:" >> migration_plan.md
+	@echo "1. Create new folder structure (make restructure)" >> migration_plan.md
+	@echo "2. Move domain entities" >> migration_plan.md
+	@echo "3. Extract interfaces" >> migration_plan.md
+	@echo "4. Implement repositories" >> migration_plan.md
+	@echo "5. Refactor services" >> migration_plan.md
+	@echo "6. Update API endpoints" >> migration_plan.md
+	@echo "7. Add tests" >> migration_plan.md
+	@echo "$(GREEN)✓ Migration plan saved to migration_plan.md$(NC)"
+
+pre-commit: format lint test ## Run pre-commit checks
+	@echo "$(GREEN)✓ Pre-commit checks passed$(NC)"
+
+docker-test: ## Run tests in Docker container
+	@echo "$(YELLOW)Building Docker test environment...$(NC)"
+	docker build -t teknofest-test -f Dockerfile.test .
+	docker run --rm teknofest-test
+	@echo "$(GREEN)✓ Docker tests complete$(NC)"
+
+benchmark: ## Run performance benchmarks
+	@echo "$(YELLOW)Running performance benchmarks...$(NC)"
+	$(PYTHON) -m pytest $(TEST_DIR)/benchmarks -v --benchmark-only
+	@echo "$(GREEN)✓ Benchmarks complete$(NC)"
+
+docs: ## Generate documentation
+	@echo "$(YELLOW)Generating documentation...$(NC)"
+	$(PYTHON) -m pdoc --html --output-dir docs $(SRC_DIR)
+	@echo "$(GREEN)✓ Documentation generated in docs/$(NC)"
+
+all: clean install restructure format quality ## Full refactoring pipeline
+	@echo "$(GREEN)✓ Full refactoring pipeline complete$(NC)"
+
+.DEFAULT_GOAL := help

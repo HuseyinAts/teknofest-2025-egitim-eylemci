@@ -1,0 +1,103 @@
+{
+  "common": {
+    "welcome": "Welcome",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "import": "Import"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "forgotPassword": "Forgot Password",
+    "rememberMe": "Remember Me",
+    "loginSuccess": "Login successful",
+    "logoutSuccess": "Logout successful",
+    "registerSuccess": "Registration successful"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "overview": "Overview",
+    "statistics": "Statistics",
+    "recentActivity": "Recent Activity",
+    "learningProgress": "Learning Progress",
+    "todaysTasks": "Today's Tasks",
+    "recommendations": "Recommendations"
+  },
+  "learning": {
+    "paths": "Learning Paths",
+    "myPaths": "My Learning Paths",
+    "explorePaths": "Explore Paths",
+    "createPath": "Create Path",
+    "difficulty": "Difficulty",
+    "beginner": "Beginner",
+    "intermediate": "Intermediate",
+    "advanced": "Advanced",
+    "estimatedTime": "Estimated Time",
+    "topics": "Topics",
+    "progress": "Progress",
+    "startLearning": "Start Learning",
+    "continueLearning": "Continue Learning",
+    "completed": "Completed"
+  },
+  "study": {
+    "sessions": "Study Sessions",
+    "startSession": "Start Session",
+    "endSession": "End Session",
+    "sessionHistory": "Session History",
+    "notes": "Notes",
+    "duration": "Duration",
+    "score": "Score",
+    "addNote": "Add Note",
+    "viewNotes": "View Notes"
+  },
+  "assessment": {
+    "title": "Assessments",
+    "takeAssessment": "Take Assessment",
+    "viewResults": "View Results",
+    "passingScore": "Passing Score",
+    "yourScore": "Your Score",
+    "timeLimit": "Time Limit",
+    "questions": "Questions",
+    "submit": "Submit",
+    "nextQuestion": "Next Question",
+    "previousQuestion": "Previous Question"
+  },
+  "profile": {
+    "title": "Profile",
+    "myProfile": "My Profile",
+    "editProfile": "Edit Profile",
+    "settings": "Settings",
+    "preferences": "Preferences",
+    "changePassword": "Change Password",
+    "notifications": "Notifications",
+    "privacy": "Privacy",
+    "language": "Language",
+    "theme": "Theme",
+    "lightTheme": "Light Theme",
+    "darkTheme": "Dark Theme"
+  },
+  "errors": {
+    "notFound": "Page not found",
+    "unauthorized": "Unauthorized access",
+    "serverError": "Server error",
+    "networkError": "Network error",
+    "validationError": "Validation error",
+    "requiredField": "This field is required",
+    "invalidEmail": "Invalid email address",
+    "passwordMismatch": "Passwords do not match",
+    "passwordTooShort": "Password must be at least 8 characters"
+  }
+}

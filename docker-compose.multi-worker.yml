@@ -1,0 +1,421 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # NGINX LOAD BALANCER
+  # ==========================================
+  nginx:
+    image: nginx:alpine
+    container_name: teknofest-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.multi-worker.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api-1
+      - api-2
+      - api-3
+      - api-4
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================
+  # API WORKERS (Multiple Instances)
+  # ==========================================
+  api-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: teknofest-api-1
+    environment:
+      - WORKER_ID=1
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - API_WORKERS=4
+      - MAX_REQUESTS=1000
+      - MAX_REQUESTS_JITTER=100
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
+    volumes:
+      - ./data:/app/data
+      - api_logs:/var/log/teknofest
+      - prometheus_data:/tmp/prometheus
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  api-2:
+    extends:
+      service: api-1
+    container_name: teknofest-api-2
+    environment:
+      - WORKER_ID=2
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - API_WORKERS=4
+
+  api-3:
+    extends:
+      service: api-1
+    container_name: teknofest-api-3
+    environment:
+      - WORKER_ID=3
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - API_WORKERS=4
+
+  api-4:
+    extends:
+      service: api-1
+    container_name: teknofest-api-4
+    environment:
+      - WORKER_ID=4
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - API_WORKERS=4
+
+  # ==========================================
+  # CELERY WORKERS
+  # ==========================================
+  celery-worker-general:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: teknofest-celery-general
+    command: celery -A src.celery_app worker --loglevel=info --concurrency=4 -Q default,data_queue
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - C_FORCE_ROOT=true
+    volumes:
+      - ./data:/app/data
+      - celery_logs:/var/log/celery
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  celery-worker-ai:
+    extends:
+      service: celery-worker-general
+    container_name: teknofest-celery-ai
+    command: celery -A src.celery_app worker --loglevel=info --concurrency=2 -Q ai_queue
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - C_FORCE_ROOT=true
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+
+  celery-worker-email:
+    extends:
+      service: celery-worker-general
+    container_name: teknofest-celery-email
+    command: celery -A src.celery_app worker --loglevel=info --concurrency=2 -Q email_queue
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: teknofest-celery-beat
+    command: celery -A src.celery_app beat --loglevel=info
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+    volumes:
+      - ./data:/app/data
+      - celery_logs:/var/log/celery
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  celery-flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: teknofest-flower
+    command: celery -A src.celery_app flower --port=5555
+    environment:
+      - APP_ENV=production
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - FLOWER_BASIC_AUTH=admin:teknofest2025
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ==========================================
+  # WORKER MANAGER
+  # ==========================================
+  worker-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: teknofest-worker-manager
+    command: python -m src.worker_manager --config /app/configs/worker_config.json
+    environment:
+      - APP_ENV=production
+      - MIN_WORKERS=2
+      - MAX_WORKERS=16
+      - AUTO_SCALE_ENABLED=true
+      - HEALTH_CHECKS_ENABLED=true
+      - WORKER_MEMORY_LIMIT=2048
+    volumes:
+      - ./configs:/app/configs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ==========================================
+  # DATABASE
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: teknofest-postgres
+    environment:
+      - POSTGRES_USER=teknofest
+      - POSTGRES_PASSWORD=teknofest2025
+      - POSTGRES_DB=teknofest_db
+      - POSTGRES_MAX_CONNECTIONS=200
+      - POSTGRES_SHARED_BUFFERS=256MB
+      - POSTGRES_EFFECTIVE_CACHE_SIZE=1GB
+      - POSTGRES_MAINTENANCE_WORK_MEM=128MB
+      - POSTGRES_CHECKPOINT_COMPLETION_TARGET=0.9
+      - POSTGRES_WAL_BUFFERS=16MB
+      - POSTGRES_DEFAULT_STATISTICS_TARGET=100
+      - POSTGRES_RANDOM_PAGE_COST=1.1
+      - POSTGRES_EFFECTIVE_IO_CONCURRENCY=200
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teknofest"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # ==========================================
+  # REDIS (Cache & Message Broker)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: teknofest-redis
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ==========================================
+  # MONITORING
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: teknofest-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: teknofest-grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=teknofest2025
+      - GF_INSTALL_PLUGINS=redis-datasource
+    ports:
+      - "3001:3000"
+    networks:
+      - app-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # ==========================================
+  # LOG AGGREGATION
+  # ==========================================
+  loki:
+    image: grafana/loki:latest
+    container_name: teknofest-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+      - ./monitoring/loki-config.yml:/etc/loki/config.yml:ro
+    command: -config.file=/etc/loki/config.yml
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: teknofest-promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - api_logs:/var/log/teknofest:ro
+      - celery_logs:/var/log/celery:ro
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - app-network
+    restart: unless-stopped
+    depends_on:
+      - loki
+
+  # ==========================================
+  # FRONTEND (Next.js)
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend/nextjs-app
+      dockerfile: Dockerfile
+    container_name: teknofest-frontend
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://nginx
+    ports:
+      - "3000:3000"
+    networks:
+      - app-network
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+# ==========================================
+# NETWORKS
+# ==========================================
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ==========================================
+# VOLUMES
+# ==========================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  api_logs:
+    driver: local
+  celery_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local

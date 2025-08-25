@@ -1,0 +1,102 @@
+[Unit]
+Description=TEKNOFEST 2025 API Server - Multi-Worker Production Service
+Documentation=https://github.com/HuseyinAts/teknofest-2025-egitim-eylemci
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=forking
+PIDFile=/var/run/teknofest-api.pid
+User=teknofest
+Group=teknofest
+WorkingDirectory=/opt/teknofest-api
+
+# Environment configuration
+Environment="APP_ENV=production"
+Environment="LOG_LEVEL=info"
+Environment="PYTHONPATH=/opt/teknofest-api"
+Environment="API_WORKERS=auto"
+Environment="AUTO_SCALE_ENABLED=true"
+Environment="WORKER_HEALTH_MONITORING=true"
+Environment="PROMETHEUS_ENABLED=true"
+Environment="PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus"
+
+# Load environment from file
+EnvironmentFile=-/etc/teknofest/api.env
+
+# Pre-start commands
+ExecStartPre=/bin/mkdir -p /var/log/teknofest
+ExecStartPre=/bin/mkdir -p /var/run/teknofest
+ExecStartPre=/bin/mkdir -p /tmp/prometheus
+ExecStartPre=/bin/chown -R teknofest:teknofest /var/log/teknofest
+ExecStartPre=/bin/chown -R teknofest:teknofest /var/run/teknofest
+ExecStartPre=/bin/chown -R teknofest:teknofest /tmp/prometheus
+
+# Main start command
+ExecStart=/opt/teknofest-api/venv/bin/gunicorn \
+    src.app:app \
+    --config /opt/teknofest-api/gunicorn_config.py \
+    --pid /var/run/teknofest-api.pid \
+    --daemon
+
+# Reload command (graceful worker restart)
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Stop command (graceful shutdown)
+ExecStop=/bin/kill -TERM $MAINPID
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+LimitCORE=infinity
+
+# Memory limits (per service, not per worker)
+MemoryMax=8G
+MemoryHigh=6G
+
+# CPU limits
+CPUQuota=400%
+CPUWeight=100
+
+# IO limits
+IOWeight=100
+IOReadBandwidthMax=/dev/sda 100M
+IOWriteBandwidthMax=/dev/sda 50M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=false  # Need shared /tmp for prometheus metrics
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/teknofest /var/run/teknofest /tmp/prometheus /opt/teknofest-api/uploads
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+PrivateMounts=true
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=600
+StartLimitBurst=5
+
+# Timeouts
+TimeoutStartSec=90
+TimeoutStopSec=90
+
+# Monitoring
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=teknofest-api
+
+# Health check
+ExecStartPost=/bin/sleep 5
+ExecStartPost=/usr/bin/curl -f http://localhost:8000/health || exit 1
+
+[Install]
+WantedBy=multi-user.target
+Alias=teknofest.service

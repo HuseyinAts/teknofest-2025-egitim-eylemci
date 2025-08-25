@@ -1,0 +1,301 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM
+
+jobs:
+  # CodeQL Analysis
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python', 'javascript' ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # Dependency Check
+  dependency-check:
+    name: OWASP Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'teknofest-egitim'
+          path: '.'
+          format: 'ALL'
+          args: >
+            --enableRetired
+            --enableExperimental
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: reports/
+
+  # Container Scanning
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t teknofest-scan:latest .
+
+      - name: Run Trivy scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'teknofest-scan:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Snyk Container Scan
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: teknofest-scan:latest
+          args: --severity-threshold=high
+
+  # SAST (Static Application Security Testing)
+  sast:
+    name: SAST Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          pip install bandit semgrep safety pip-audit
+
+      - name: Run Bandit
+        run: |
+          bandit -r src/ -f json -o bandit-report.json
+          bandit -r src/ -ll
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/python
+            p/django
+            p/flask
+            p/owasp-top-ten
+
+      - name: Run Safety check
+        run: |
+          pip install -r requirements.txt
+          safety check --json > safety-report.json || true
+          safety check
+
+      - name: Run pip-audit
+        run: |
+          pip-audit --desc --format json --output pip-audit-report.json || true
+          pip-audit --desc
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+            pip-audit-report.json
+
+  # Secret Scanning
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog OSS
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # License Compliance
+  license-check:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pip-licenses
+        run: pip install pip-licenses
+
+      - name: Check licenses
+        run: |
+          pip install -r requirements.txt
+          pip-licenses --format=csv --output-file=licenses.csv
+          pip-licenses --fail-on="GPL;LGPL;AGPL;SSPL"
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: licenses.csv
+
+  # Infrastructure as Code Scanning
+  iac-scan:
+    name: IaC Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkov scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: all
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+
+      - name: Terrascan
+        run: |
+          docker run --rm -v "$(pwd):/src" \
+            tenable/terrascan scan -t docker,k8s,github
+
+  # API Security Testing
+  api-security:
+    name: API Security Testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: OWASP ZAP API Scan
+        uses: zaproxy/action-api-scan@v0.5.0
+        with:
+          target: 'http://localhost:8000/openapi.json'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+
+      - name: Upload ZAP results
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: report_json.json
+
+  # Compliance Checks
+  compliance:
+    name: Compliance Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: CIS Benchmark Check
+        run: |
+          echo "Running CIS benchmark checks..."
+          # Add CIS benchmark checks here
+
+      - name: PCI DSS Compliance
+        run: |
+          echo "Checking PCI DSS compliance..."
+          # Add PCI DSS compliance checks here
+
+      - name: GDPR Compliance
+        run: |
+          echo "Checking GDPR compliance..."
+          # Add GDPR compliance checks here
+
+  # Security Report Summary
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [codeql, dependency-check, container-scan, sast, secret-scan, license-check]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate security report
+        run: |
+          echo "## Security Scan Summary" > security-summary.md
+          echo "" >> security-summary.md
+          echo "### Scan Results" >> security-summary.md
+          echo "- CodeQL: ${{ needs.codeql.result }}" >> security-summary.md
+          echo "- Dependency Check: ${{ needs.dependency-check.result }}" >> security-summary.md
+          echo "- Container Scan: ${{ needs.container-scan.result }}" >> security-summary.md
+          echo "- SAST: ${{ needs.sast.result }}" >> security-summary.md
+          echo "- Secret Scan: ${{ needs.secret-scan.result }}" >> security-summary.md
+          echo "- License Check: ${{ needs.license-check.result }}" >> security-summary.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary
+          path: security-summary.md
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('security-summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });

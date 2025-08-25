@@ -1,0 +1,185 @@
+global:
+  resolve_timeout: 5m
+  smtp_from: 'alertmanager@teknofest2025.com'
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_auth_username: '${SMTP_USER}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+# Templates for alert messages
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# The root route
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'default'
+  
+  routes:
+    # Critical alerts
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 1s
+      repeat_interval: 5m
+      continue: true
+    
+    # Warning alerts
+    - match:
+        severity: warning
+      receiver: 'warning'
+      group_wait: 30s
+      repeat_interval: 30m
+      continue: true
+    
+    # Database alerts
+    - match:
+        service: database
+      receiver: 'database-team'
+      group_by: ['alertname', 'database']
+      continue: true
+    
+    # Security alerts
+    - match:
+        service: security
+      receiver: 'security-team'
+      group_wait: 0s
+      repeat_interval: 5m
+      continue: true
+    
+    # AI/ML alerts
+    - match:
+        service: ai
+      receiver: 'ml-team'
+      group_wait: 1m
+      repeat_interval: 1h
+      continue: true
+
+# Inhibition rules
+inhibit_rules:
+  # Inhibit warning alerts if critical alert is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+  
+  # Inhibit info alerts if warning or critical is firing
+  - source_match_re:
+      severity: 'warning|critical'
+    target_match:
+      severity: 'info'
+    equal: ['alertname', 'cluster', 'service']
+
+# Receivers configuration
+receivers:
+  - name: 'default'
+    email_configs:
+      - to: 'devops@teknofest2025.com'
+        send_resolved: true
+        headers:
+          Subject: '[TEKNOFEST] {{ .GroupLabels.alertname }} - {{ .GroupLabels.severity }}'
+        html: |
+          <h2>{{ .GroupLabels.alertname }}</h2>
+          <p><b>Severity:</b> {{ .GroupLabels.severity }}</p>
+          <p><b>Service:</b> {{ .GroupLabels.service }}</p>
+          <h3>Alerts:</h3>
+          {{ range .Alerts }}
+          <hr>
+          <p><b>Summary:</b> {{ .Annotations.summary }}</p>
+          <p><b>Description:</b> {{ .Annotations.description }}</p>
+          <p><b>Labels:</b></p>
+          <ul>
+          {{ range .Labels.SortedPairs }}
+            <li>{{ .Name }}: {{ .Value }}</li>
+          {{ end }}
+          </ul>
+          {{ end }}
+    
+    webhook_configs:
+      - url: 'http://backend:8000/api/v1/webhooks/alerts'
+        send_resolved: true
+        max_alerts: 10
+  
+  - name: 'critical'
+    email_configs:
+      - to: 'oncall@teknofest2025.com'
+        send_resolved: true
+        headers:
+          Priority: 'urgent'
+          X-Priority: '1'
+    
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#critical-alerts'
+        title: 'Critical Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+        color: 'danger'
+        actions:
+          - type: button
+            text: 'View in Grafana'
+            url: 'http://grafana:3000/d/teknofest-main'
+    
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        description: '{{ .GroupLabels.alertname }}'
+        details:
+          severity: '{{ .GroupLabels.severity }}'
+          service: '{{ .GroupLabels.service }}'
+  
+  - name: 'warning'
+    email_configs:
+      - to: 'devops@teknofest2025.com'
+        send_resolved: true
+    
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#alerts'
+        title: 'Warning: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+        color: 'warning'
+  
+  - name: 'database-team'
+    email_configs:
+      - to: 'database@teknofest2025.com'
+        send_resolved: true
+    
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#database-alerts'
+        title: 'Database Alert: {{ .GroupLabels.alertname }}'
+        send_resolved: true
+  
+  - name: 'security-team'
+    email_configs:
+      - to: 'security@teknofest2025.com'
+        send_resolved: false
+        headers:
+          Priority: 'high'
+    
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#security-alerts'
+        title: 'SECURITY ALERT: {{ .GroupLabels.alertname }}'
+        send_resolved: false
+        color: 'danger'
+    
+    webhook_configs:
+      - url: 'http://backend:8000/api/v1/webhooks/security'
+        send_resolved: false
+  
+  - name: 'ml-team'
+    email_configs:
+      - to: 'ml-team@teknofest2025.com'
+        send_resolved: true
+    
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#ml-alerts'
+        title: 'ML/AI Alert: {{ .GroupLabels.alertname }}'
+        send_resolved: true

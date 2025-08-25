@@ -1,0 +1,11 @@
+{
+  "encoding_name": "cl100k_base",
+  "vocab_size": 100277,
+  "max_token_value": 100276,
+  "special_tokens": {
+    "<|endoftext|>": 100257,
+    "<|im_start|>": 100264,
+    "<|im_end|>": 100265,
+    "<|im_sep|>": 100266
+  }
+}

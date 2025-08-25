@@ -1,0 +1,119 @@
+# TEKNOFEST 2025 - Production Makefile
+
+.PHONY: help deploy rollback backup test security monitor
+
+DOCKER_REGISTRY=ghcr.io/teknofest2025
+VERSION=$(shell git describe --tags --always)
+ENV=production
+
+help:
+	@echo "TEKNOFEST 2025 Production Commands:"
+	@echo "  make deploy         - Deploy to production"
+	@echo "  make rollback       - Rollback to previous version"
+	@echo "  make backup         - Create full backup"
+	@echo "  make test-prod      - Run production tests"
+	@echo "  make security-scan  - Run security scan"
+	@echo "  make monitor        - View monitoring dashboard"
+	@echo "  make emergency-stop - Emergency shutdown"
+
+# Pre-deployment checks
+pre-deploy:
+	@echo "🔍 Running pre-deployment checks..."
+	@python scripts/security_check.py
+	@pytest tests/ --cov=src --cov-report=term-missing
+	@echo "✅ Pre-deployment checks passed!"
+
+# Build production image
+build:
+	@echo "🔨 Building production image..."
+	docker build -f Dockerfile.production -t $(DOCKER_REGISTRY)/api:$(VERSION) .
+	docker tag $(DOCKER_REGISTRY)/api:$(VERSION) $(DOCKER_REGISTRY)/api:latest
+
+# Push to registry
+push: build
+	@echo "📤 Pushing to registry..."
+	docker push $(DOCKER_REGISTRY)/api:$(VERSION)
+	docker push $(DOCKER_REGISTRY)/api:latest
+
+# Deploy to production
+deploy: pre-deploy push
+	@echo "🚀 Deploying to production..."
+	kubectl set image deployment/teknofest-api \
+		api=$(DOCKER_REGISTRY)/api:$(VERSION) \
+		-n teknofest-prod
+	kubectl rollout status deployment/teknofest-api -n teknofest-prod
+	@echo "✅ Deployment successful!"
+	@curl -X POST $(SLACK_WEBHOOK) -d '{"text": "✅ Production deployment successful: $(VERSION)"}'
+
+# Rollback deployment
+rollback:
+	@echo "🔄 Rolling back deployment..."
+	kubectl rollout undo deployment/teknofest-api -n teknofest-prod
+	kubectl rollout status deployment/teknofest-api -n teknofest-prod
+	@echo "✅ Rollback completed!"
+
+# Create backup
+backup:
+	@echo "💾 Creating backup..."
+	./scripts/backup-system.sh
+	@echo "✅ Backup completed!"
+
+# Run production tests
+test-prod:
+	@echo "🧪 Running production tests..."
+	python scripts/production_tests.py
+	@echo "✅ Production tests passed!"
+
+# Security scan
+security-scan:
+	@echo "🔒 Running security scan..."
+	python scripts/security_check.py
+	trivy image $(DOCKER_REGISTRY)/api:latest
+	@echo "✅ Security scan completed!"
+
+# View monitoring
+monitor:
+	@echo "📊 Opening monitoring dashboard..."
+	@echo "Grafana: https://grafana.teknofest2025.com"
+	@echo "Prometheus: https://prometheus.teknofest2025.com"
+
+# Emergency stop
+emergency-stop:
+	@echo "🚨 EMERGENCY STOP!"
+	kubectl scale deployment/teknofest-api --replicas=0 -n teknofest-prod
+	@echo "⛔ Application stopped!"
+
+# Database operations
+db-backup:
+	@echo "💾 Backing up database..."
+	./scripts/postgres-backup.sh
+
+db-restore:
+	@echo "♻️ Restoring database..."
+	./scripts/postgres-restore.sh $(BACKUP_FILE)
+
+db-migrate:
+	@echo "🔄 Running database migrations..."
+	python scripts/migrate_production.py
+
+# Monitoring operations
+logs:
+	kubectl logs -f deployment/teknofest-api -n teknofest-prod
+
+metrics:
+	curl -s http://api.teknofest2025.com/metrics | grep -E "^http_"
+
+# Cleanup
+clean:
+	docker system prune -af
+	kubectl delete pods --field-selector status.phase=Failed -n teknofest-prod
+
+# Status check
+status:
+	@echo "📊 Production Status:"
+	@echo "========================"
+	@kubectl get deployment -n teknofest-prod
+	@kubectl get pods -n teknofest-prod
+	@kubectl get services -n teknofest-prod
+	@echo "========================"
+	@curl -s https://api.teknofest2025.com/health | jq .

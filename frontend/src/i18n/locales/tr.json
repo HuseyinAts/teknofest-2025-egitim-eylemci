@@ -1,0 +1,103 @@
+{
+  "common": {
+    "welcome": "Hoş Geldiniz",
+    "loading": "Yükleniyor...",
+    "error": "Hata",
+    "success": "Başarılı",
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "add": "Ekle",
+    "search": "Ara",
+    "filter": "Filtrele",
+    "export": "Dışa Aktar",
+    "import": "İçe Aktar"
+  },
+  "auth": {
+    "login": "Giriş Yap",
+    "logout": "Çıkış Yap",
+    "register": "Kayıt Ol",
+    "email": "E-posta",
+    "password": "Şifre",
+    "confirmPassword": "Şifre Tekrar",
+    "forgotPassword": "Şifremi Unuttum",
+    "rememberMe": "Beni Hatırla",
+    "loginSuccess": "Giriş başarılı",
+    "logoutSuccess": "Çıkış başarılı",
+    "registerSuccess": "Kayıt başarılı"
+  },
+  "dashboard": {
+    "title": "Ana Sayfa",
+    "overview": "Genel Bakış",
+    "statistics": "İstatistikler",
+    "recentActivity": "Son Aktiviteler",
+    "learningProgress": "Öğrenme İlerlemesi",
+    "todaysTasks": "Bugünün Görevleri",
+    "recommendations": "Öneriler"
+  },
+  "learning": {
+    "paths": "Öğrenme Yolları",
+    "myPaths": "Öğrenme Yollarım",
+    "explorePaths": "Yolları Keşfet",
+    "createPath": "Yol Oluştur",
+    "difficulty": "Zorluk",
+    "beginner": "Başlangıç",
+    "intermediate": "Orta",
+    "advanced": "İleri",
+    "estimatedTime": "Tahmini Süre",
+    "topics": "Konular",
+    "progress": "İlerleme",
+    "startLearning": "Öğrenmeye Başla",
+    "continueLearning": "Öğrenmeye Devam Et",
+    "completed": "Tamamlandı"
+  },
+  "study": {
+    "sessions": "Çalışma Oturumları",
+    "startSession": "Oturum Başlat",
+    "endSession": "Oturumu Bitir",
+    "sessionHistory": "Oturum Geçmişi",
+    "notes": "Notlar",
+    "duration": "Süre",
+    "score": "Puan",
+    "addNote": "Not Ekle",
+    "viewNotes": "Notları Görüntüle"
+  },
+  "assessment": {
+    "title": "Değerlendirmeler",
+    "takeAssessment": "Değerlendirmeye Gir",
+    "viewResults": "Sonuçları Görüntüle",
+    "passingScore": "Geçme Puanı",
+    "yourScore": "Puanınız",
+    "timeLimit": "Süre Limiti",
+    "questions": "Sorular",
+    "submit": "Gönder",
+    "nextQuestion": "Sonraki Soru",
+    "previousQuestion": "Önceki Soru"
+  },
+  "profile": {
+    "title": "Profil",
+    "myProfile": "Profilim",
+    "editProfile": "Profili Düzenle",
+    "settings": "Ayarlar",
+    "preferences": "Tercihler",
+    "changePassword": "Şifre Değiştir",
+    "notifications": "Bildirimler",
+    "privacy": "Gizlilik",
+    "language": "Dil",
+    "theme": "Tema",
+    "lightTheme": "Açık Tema",
+    "darkTheme": "Koyu Tema"
+  },
+  "errors": {
+    "notFound": "Sayfa bulunamadı",
+    "unauthorized": "Yetkisiz erişim",
+    "serverError": "Sunucu hatası",
+    "networkError": "Ağ hatası",
+    "validationError": "Doğrulama hatası",
+    "requiredField": "Bu alan zorunludur",
+    "invalidEmail": "Geçersiz e-posta adresi",
+    "passwordMismatch": "Şifreler eşleşmiyor",
+    "passwordTooShort": "Şifre en az 8 karakter olmalıdır"
+  }
+}

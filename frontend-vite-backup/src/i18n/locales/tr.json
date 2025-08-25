@@ -1,0 +1,92 @@
+{
+  "common": {
+    "loading": "Yükleniyor",
+    "error": "Hata",
+    "success": "Başarılı",
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "add": "Ekle",
+    "search": "Ara",
+    "filter": "Filtrele",
+    "export": "Dışa Aktar",
+    "import": "İçe Aktar",
+    "close": "Kapat",
+    "confirm": "Onayla",
+    "back": "Geri",
+    "next": "İleri",
+    "submit": "Gönder",
+    "reset": "Sıfırla",
+    "refresh": "Yenile"
+  },
+  "auth": {
+    "login": "Giriş Yap",
+    "logout": "Çıkış Yap",
+    "register": "Kayıt Ol",
+    "email": "E-posta",
+    "password": "Şifre",
+    "confirmPassword": "Şifre Tekrar",
+    "forgotPassword": "Şifremi Unuttum",
+    "resetPassword": "Şifre Sıfırla",
+    "rememberMe": "Beni Hatırla",
+    "loginSuccess": "Giriş başarılı",
+    "logoutSuccess": "Çıkış başarılı",
+    "registerSuccess": "Kayıt başarılı",
+    "invalidCredentials": "Geçersiz kullanıcı adı veya şifre"
+  },
+  "navigation": {
+    "dashboard": "Ana Sayfa",
+    "learningPath": "Öğrenme Yolu",
+    "assessment": "Değerlendirme",
+    "studyBuddy": "Çalışma Arkadaşı",
+    "content": "İçerikler",
+    "analytics": "Analizler",
+    "profile": "Profil",
+    "settings": "Ayarlar"
+  },
+  "dashboard": {
+    "welcome": "Hoş Geldiniz",
+    "todaysTasks": "Bugünün Görevleri",
+    "progress": "İlerleme",
+    "achievements": "Başarılar",
+    "recentActivity": "Son Aktiviteler",
+    "quickActions": "Hızlı İşlemler"
+  },
+  "learningPath": {
+    "title": "Öğrenme Yolum",
+    "currentLevel": "Mevcut Seviye",
+    "nextLesson": "Sonraki Ders",
+    "completedLessons": "Tamamlanan Dersler",
+    "upcomingLessons": "Yaklaşan Dersler",
+    "recommendedContent": "Önerilen İçerikler"
+  },
+  "assessment": {
+    "title": "Değerlendirmeler",
+    "takeQuiz": "Quiz'e Başla",
+    "viewResults": "Sonuçları Görüntüle",
+    "performance": "Performans",
+    "strengths": "Güçlü Yönler",
+    "weaknesses": "Gelişim Alanları"
+  },
+  "profile": {
+    "title": "Profilim",
+    "personalInfo": "Kişisel Bilgiler",
+    "firstName": "Ad",
+    "lastName": "Soyad",
+    "grade": "Sınıf",
+    "school": "Okul",
+    "learningStyle": "Öğrenme Stili",
+    "updateProfile": "Profili Güncelle"
+  },
+  "settings": {
+    "title": "Ayarlar",
+    "account": "Hesap",
+    "notifications": "Bildirimler",
+    "privacy": "Gizlilik",
+    "language": "Dil",
+    "theme": "Tema",
+    "darkMode": "Karanlık Mod",
+    "lightMode": "Aydınlık Mod"
+  }
+}

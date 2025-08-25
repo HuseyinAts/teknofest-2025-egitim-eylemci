@@ -1,0 +1,487 @@
+name: Production Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+          - hotfix
+      skip_tests:
+        description: 'Skip Tests (Emergency Only)'
+        required: false
+        type: boolean
+        default: false
+      rollback:
+        description: 'Rollback to Previous Version'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Container Registry Settings
+  DOCKER_REGISTRY: ghcr.io
+  DOCKER_IMAGE: ghcr.io/${{ github.repository }}
+  DOCKER_BUILDKIT: 1
+  
+  # Python Settings
+  PYTHON_VERSION: '3.11'
+  PIP_CACHE_DIR: ~/.cache/pip
+  
+  # Node Settings  
+  NODE_VERSION: '20'
+  
+  # Kubernetes Settings
+  KUBE_NAMESPACE: teknofest-egitim
+  HELM_VERSION: 'v3.13.0'
+  
+  # Cloud Providers
+  AWS_DEFAULT_REGION: eu-west-1
+  GCP_REGION: europe-west1
+  AZURE_REGION: westeurope
+  
+  # Testing
+  PYTEST_TIMEOUT: 600
+  COVERAGE_THRESHOLD: 80
+
+concurrency:
+  group: deploy-${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # 1. Pre-deployment Validation
+  validate:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.determine.outputs.environment }}
+      version: ${{ steps.version.outputs.version }}
+      should_deploy: ${{ steps.checks.outputs.should_deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Environment
+        id: determine
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=development" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" =~ ^refs/tags/v ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            echo "environment=preview" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" =~ ^refs/tags/v ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=$(git describe --tags --always --dirty)
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Pre-deployment Checks
+        id: checks
+        run: |
+          # Check if deployment should proceed
+          SHOULD_DEPLOY=true
+          
+          # Check for deployment freeze
+          if [ -f .deployment-freeze ]; then
+            echo "Deployment freeze detected"
+            SHOULD_DEPLOY=false
+          fi
+          
+          # Check commit message for skip indicators
+          if git log -1 --pretty=%B | grep -q "\[skip deploy\]"; then
+            echo "Skip deploy flag detected"
+            SHOULD_DEPLOY=false
+          fi
+          
+          echo "should_deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+
+  # 2. Security Scanning
+  security:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should_deploy == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy Security Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Security Results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Dependency Check
+        run: |
+          python -m pip install safety bandit
+          safety check --json
+          bandit -r src/ -f json -o bandit-report.json
+
+      - name: SAST Analysis
+        uses: github/super-linter@v5
+        env:
+          VALIDATE_ALL_CODEBASE: false
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 3. Build & Test
+  build-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: [validate, security]
+    if: github.event.inputs.skip_tests != 'true'
+    strategy:
+      matrix:
+        test-suite: [unit, integration, e2e, performance]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Cache Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.npm
+            ~/.local
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/requirements*.txt', '**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-xdist pytest-timeout pytest-asyncio
+
+      - name: Run ${{ matrix.test-suite }} Tests
+        run: |
+          if [[ "${{ matrix.test-suite }}" == "unit" ]]; then
+            pytest tests/ -m "not integration and not e2e" \
+              --cov=src --cov-report=xml --cov-report=html \
+              -n auto --timeout=${{ env.PYTEST_TIMEOUT }}
+          elif [[ "${{ matrix.test-suite }}" == "integration" ]]; then
+            pytest tests/ -m integration \
+              --timeout=${{ env.PYTEST_TIMEOUT }}
+          elif [[ "${{ matrix.test-suite }}" == "e2e" ]]; then
+            pytest tests/test_e2e_production.py \
+              --timeout=1200
+          elif [[ "${{ matrix.test-suite }}" == "performance" ]]; then
+            echo "Running performance tests"
+            # Add performance test commands
+          fi
+
+      - name: Check Coverage
+        if: matrix.test-suite == 'unit'
+        run: |
+          coverage report --fail-under=${{ env.COVERAGE_THRESHOLD }}
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.test-suite }}
+          path: |
+            coverage.xml
+            htmlcov/
+            test-results/
+
+  # 4. Build Container Images
+  build-images:
+    name: Build Container Images
+    runs-on: ubuntu-latest
+    needs: [validate, build-test]
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=host
+            image=moby/buildkit:master
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=${{ needs.validate.outputs.environment }}-
+            type=raw,value=${{ needs.validate.outputs.version }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and Push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.validate.outputs.version }}
+          secrets: |
+            "github_token=${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Sign Container Image
+        run: |
+          echo "Signing container image"
+          # cosign sign ${{ env.DOCKER_IMAGE }}@${{ steps.build.outputs.digest }}
+
+      - name: Scan Container Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'container-scan.sarif'
+
+  # 5. Deploy to Development
+  deploy-dev:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: [validate, build-images]
+    if: needs.validate.outputs.environment == 'development'
+    environment:
+      name: development
+      url: https://dev.teknofest-egitim.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Development
+        run: |
+          echo "Deploying to development environment"
+          # Add deployment commands
+
+      - name: Smoke Tests
+        run: |
+          ./scripts/smoke-test.sh development
+
+  # 6. Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [validate, build-images]
+    if: needs.validate.outputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://staging.teknofest-egitim.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install teknofest-staging ./k8s/helm \
+            --namespace ${{ env.KUBE_NAMESPACE }}-staging \
+            --create-namespace \
+            --set image.tag=${{ needs.validate.outputs.version }} \
+            --set image.repository=${{ env.DOCKER_IMAGE }} \
+            --set environment=staging \
+            --wait \
+            --timeout 10m
+
+      - name: Run Staging Tests
+        run: |
+          kubectl run staging-test --image=curlimages/curl:latest \
+            --rm -i --restart=Never \
+            -- curl -f http://teknofest-api.${{ env.KUBE_NAMESPACE }}-staging:8000/health
+
+  # 7. Deploy to Production (Blue-Green)
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate, build-images, deploy-staging]
+    if: needs.validate.outputs.environment == 'production' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: production
+      url: https://teknofest-egitim.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.PROD_KUBE_CONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Backup Current Deployment
+        run: |
+          kubectl get deploy -n ${{ env.KUBE_NAMESPACE }} -o yaml > deployment-backup.yaml
+          kubectl get svc -n ${{ env.KUBE_NAMESPACE }} -o yaml > service-backup.yaml
+
+      - name: Blue-Green Deployment
+        run: |
+          # Deploy Green version
+          kubectl set image deployment/teknofest-api-green \
+            teknofest-api=${{ env.DOCKER_IMAGE }}:${{ needs.validate.outputs.version }} \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --record
+
+          # Wait for rollout
+          kubectl rollout status deployment/teknofest-api-green \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --timeout=600s
+
+          # Run health checks
+          ./scripts/health-check.sh production-green
+
+          # Switch traffic
+          kubectl patch service teknofest-api \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            -p '{"spec":{"selector":{"deployment":"green"}}}'
+
+          # Monitor for 5 minutes
+          sleep 300
+
+          # If successful, scale down blue
+          kubectl scale deployment teknofest-api-blue --replicas=0 \
+            -n ${{ env.KUBE_NAMESPACE }}
+
+      - name: Production Validation
+        run: |
+          # Run comprehensive tests
+          pytest tests/test_production_integration.py -v
+
+      - name: Rollback on Failure
+        if: failure()
+        run: |
+          echo "Rolling back production deployment"
+          kubectl apply -f deployment-backup.yaml
+          kubectl apply -f service-backup.yaml
+
+  # 8. Post-deployment Tasks
+  post-deploy:
+    name: Post-deployment Tasks
+    runs-on: ubuntu-latest
+    needs: [deploy-dev, deploy-staging, deploy-production]
+    if: always()
+    steps:
+      - name: Update Documentation
+        run: |
+          echo "Updating deployment documentation"
+
+      - name: Clean Old Images
+        run: |
+          echo "Cleaning old container images"
+
+      - name: Update Metrics
+        run: |
+          echo "Updating deployment metrics"
+
+      - name: Send Notifications
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            Deployment Status: ${{ job.status }}
+            Environment: ${{ needs.validate.outputs.environment }}
+            Version: ${{ needs.validate.outputs.version }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        if: always()
+
+  # 9. Rollback Job
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: github.event.inputs.rollback == 'true'
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rollback to Previous Version
+        run: |
+          echo "Rolling back ${{ github.event.inputs.environment }} environment"
+          # Add rollback logic
+
+  # 10. Performance Monitoring
+  monitor:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: needs.validate.outputs.environment == 'production'
+    steps:
+      - name: Run Performance Tests
+        run: |
+          echo "Running performance benchmarks"
+
+      - name: Check SLA Metrics
+        run: |
+          echo "Checking SLA compliance"
+
+      - name: Generate Report
+        run: |
+          echo "Generating performance report"

@@ -1,0 +1,392 @@
+name: Automated Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - unit
+          - integration
+          - e2e
+          - performance
+          - security
+          - smoke
+          - regression
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+  CACHE_NUMBER: 0  # Increment to reset cache
+
+jobs:
+  setup:
+    name: Setup Test Environment
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache.outputs.cache-key }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate cache key
+        id: cache
+        run: |
+          echo "cache-key=test-${{ runner.os }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('requirements*.txt') }}" >> $GITHUB_OUTPUT
+
+  lint:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            .venv
+          key: ${{ needs.setup.outputs.cache-key }}
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort mypy pylint
+          pip install -r requirements.txt
+          
+      - name: Run Black
+        run: black --check src/ backend/ tests/
+        
+      - name: Run isort
+        run: isort --check-only src/ backend/ tests/
+        
+      - name: Run Flake8
+        run: flake8 src/ backend/ tests/ --max-line-length=120
+        
+      - name: Run MyPy
+        run: mypy src/ backend/ --ignore-missing-imports
+        
+      - name: Run Pylint
+        run: pylint src/ backend/ --fail-under=8.0 || true
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety bandit
+          pip install -r requirements.txt
+          
+      - name: Run Safety check
+        run: safety check --json --continue-on-error
+        
+      - name: Run Bandit
+        run: bandit -r src/ backend/ -f json -o bandit-report.json || true
+        
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+
+  test-matrix:
+    name: Test Suite - ${{ matrix.test-type }}
+    runs-on: ${{ matrix.os }}
+    needs: [setup, lint]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        test-type: [unit, integration]
+        python-version: ['3.9', '3.10', '3.11']
+        exclude:
+          # Skip some combinations to save CI time
+          - os: windows-latest
+            python-version: '3.9'
+          - os: macos-latest
+            python-version: '3.9'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            .venv
+          key: ${{ needs.setup.outputs.cache-key }}-${{ matrix.os }}-${{ matrix.python-version }}
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-timeout pytest-xdist pytest-html
+          
+      - name: Run ${{ matrix.test-type }} tests
+        run: |
+          python run_automated_tests.py --type ${{ matrix.test-type }} --parallel --ci
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.test-type }}
+          path: test_results/
+          
+      - name: Upload coverage reports
+        if: matrix.test-type == 'unit'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./test_results/coverage/coverage.xml
+          flags: ${{ matrix.test-type }}
+          name: codecov-${{ matrix.os }}-${{ matrix.python-version }}
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [test-matrix]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: teknofest_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install playwright pytest-playwright
+          
+      - name: Install Node dependencies
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          cd ..
+          
+      - name: Install Playwright browsers
+        run: playwright install --with-deps
+        
+      - name: Start services
+        run: |
+          # Start backend
+          python src/api_server_integrated.py &
+          # Start frontend
+          cd frontend && npm start &
+          # Wait for services to be ready
+          sleep 10
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/teknofest_test
+          REDIS_URL: redis://localhost:6379
+          
+      - name: Run E2E tests
+        run: python run_automated_tests.py --type e2e --ci
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/teknofest_test
+          REDIS_URL: redis://localhost:6379
+          
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-test-results
+          path: test_results/
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [test-matrix]
+    if: github.event_name == 'schedule' || github.event.inputs.test_type == 'performance'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install locust pytest-benchmark
+          
+      - name: Run performance tests
+        run: python run_automated_tests.py --type performance --ci
+        
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-results
+          path: test_results/
+
+  report:
+    name: Generate Test Report
+    runs-on: ubuntu-latest
+    needs: [test-matrix, e2e-tests, security]
+    if: always()
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts/
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Generate consolidated report
+        run: |
+          python -c "
+          import json
+          import glob
+          from pathlib import Path
+          
+          # Collect all test results
+          results = []
+          for result_file in glob.glob('artifacts/**/test_result_*.json', recursive=True):
+              with open(result_file) as f:
+                  results.append(json.load(f))
+          
+          # Generate summary
+          total_passed = sum(r.get('passed', 0) for r in results)
+          total_failed = sum(r.get('failed', 0) for r in results)
+          total_skipped = sum(r.get('skipped', 0) for r in results)
+          
+          summary = {
+              'total_tests': total_passed + total_failed + total_skipped,
+              'passed': total_passed,
+              'failed': total_failed,
+              'skipped': total_skipped,
+              'success_rate': (total_passed / (total_passed + total_failed) * 100) if (total_passed + total_failed) > 0 else 0
+          }
+          
+          print('## Test Results Summary')
+          print(f'✅ Passed: {total_passed}')
+          print(f'❌ Failed: {total_failed}')
+          print(f'⏭️ Skipped: {total_skipped}')
+          print(f'📊 Success Rate: {summary[\"success_rate\"]:.1f}%')
+          
+          # Save summary
+          with open('test_summary.json', 'w') as f:
+              json.dump(summary, f, indent=2)
+          "
+          
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(fs.readFileSync('test_summary.json', 'utf8'));
+            
+            const comment = `## 🧪 Test Results
+            
+            | Metric | Value |
+            |--------|--------|
+            | ✅ Passed | ${summary.passed} |
+            | ❌ Failed | ${summary.failed} |
+            | ⏭️ Skipped | ${summary.skipped} |
+            | 📊 Success Rate | ${summary.success_rate.toFixed(1)}% |
+            
+            View detailed results in the [Actions tab](${context.payload.pull_request.html_url.replace('/pull/', '/actions/')})`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [test-matrix, e2e-tests, security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://teknofest2025.example.com
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production..."
+          # Add your deployment commands here
+          
+      - name: Notify deployment
+        run: |
+          echo "Deployment completed successfully"

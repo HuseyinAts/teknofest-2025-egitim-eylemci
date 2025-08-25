@@ -1,0 +1,557 @@
+# Production-Ready Kubernetes Deployment for TEKNOFEST 2025
+# Multi-Worker Configuration with Auto-scaling
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: teknofest-prod
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teknofest-config
+  namespace: teknofest-prod
+data:
+  APP_ENV: "production"
+  API_WORKERS: "4"
+  MAX_REQUESTS: "1000"
+  MAX_REQUESTS_JITTER: "100"
+  MIN_WORKERS: "2"
+  MAX_WORKERS: "16"
+  AUTO_SCALE_ENABLED: "true"
+  HEALTH_CHECKS_ENABLED: "true"
+  WORKER_MEMORY_LIMIT: "2048"
+  LOG_LEVEL: "info"
+  PROMETHEUS_ENABLED: "true"
+---
+# Secret for sensitive data
+apiVersion: v1
+kind: Secret
+metadata:
+  name: teknofest-secrets
+  namespace: teknofest-prod
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql://teknofest:teknofest2025@postgres-service:5432/teknofest_db"
+  REDIS_URL: "redis://redis-service:6379"
+  CELERY_BROKER_URL: "redis://redis-service:6379/1"
+  SECRET_KEY: "your-secret-key-here"
+  JWT_SECRET_KEY: "your-jwt-secret-here"
+  CLAUDE_API_KEY: "your-claude-api-key"
+  HUGGINGFACE_API_KEY: "your-huggingface-api-key"
+---
+# PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: teknofest-prod
+spec:
+  serviceName: postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: teknofest
+        - name: POSTGRES_PASSWORD
+          value: teknofest2025
+        - name: POSTGRES_DB
+          value: teknofest_db
+        - name: POSTGRES_MAX_CONNECTIONS
+          value: "200"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - teknofest
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - teknofest
+          initialDelaySeconds: 5
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: teknofest-prod
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+  selector:
+    app: postgres
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: teknofest-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        command:
+        - redis-server
+        - --maxmemory
+        - "512mb"
+        - --maxmemory-policy
+        - allkeys-lru
+        - --appendonly
+        - "yes"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: redis-storage
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: redis-storage
+        emptyDir: {}
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: teknofest-prod
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis
+---
+# API Deployment (Multi-Worker)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teknofest-api
+  namespace: teknofest-prod
+spec:
+  replicas: 4  # Initial number of pods
+  selector:
+    matchLabels:
+      app: teknofest-api
+  template:
+    metadata:
+      labels:
+        app: teknofest-api
+    spec:
+      initContainers:
+      - name: wait-for-db
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z postgres-service 5432; do echo waiting for postgres; sleep 2; done;']
+      - name: run-migrations
+        image: teknofest-api:latest
+        command: ['alembic', 'upgrade', 'head']
+        envFrom:
+        - configMapRef:
+            name: teknofest-config
+        - secretRef:
+            name: teknofest-secrets
+      containers:
+      - name: api
+        image: teknofest-api:latest
+        ports:
+        - containerPort: 8000
+        command:
+        - gunicorn
+        - -c
+        - /app/gunicorn_config.py
+        - src.app:app
+        envFrom:
+        - configMapRef:
+            name: teknofest-config
+        - secretRef:
+            name: teknofest-secrets
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+        volumeMounts:
+        - name: app-data
+          mountPath: /app/data
+        - name: logs
+          mountPath: /var/log/teknofest
+      volumes:
+      - name: app-data
+        persistentVolumeClaim:
+          claimName: app-data-pvc
+      - name: logs
+        emptyDir: {}
+---
+# API Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: teknofest-api-service
+  namespace: teknofest-prod
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8000
+  selector:
+    app: teknofest-api
+---
+# Celery Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: teknofest-prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+    spec:
+      containers:
+      - name: celery-worker
+        image: teknofest-api:latest
+        command:
+        - celery
+        - -A
+        - src.celery_app
+        - worker
+        - --loglevel=info
+        - --concurrency=4
+        envFrom:
+        - configMapRef:
+            name: teknofest-config
+        - secretRef:
+            name: teknofest-secrets
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+---
+# Celery Beat Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: teknofest-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-beat
+  template:
+    metadata:
+      labels:
+        app: celery-beat
+    spec:
+      containers:
+      - name: celery-beat
+        image: teknofest-api:latest
+        command:
+        - celery
+        - -A
+        - src.celery_app
+        - beat
+        - --loglevel=info
+        envFrom:
+        - configMapRef:
+            name: teknofest-config
+        - secretRef:
+            name: teknofest-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# Nginx Ingress Controller
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-ingress
+  namespace: teknofest-prod
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-ingress
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+---
+# Nginx Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: teknofest-prod
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  - name: https
+    port: 443
+    targetPort: 443
+  selector:
+    app: nginx-ingress
+---
+# PersistentVolumeClaim for app data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data-pvc
+  namespace: teknofest-prod
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Horizontal Pod Autoscaler for API
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: teknofest-api-hpa
+  namespace: teknofest-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: teknofest-api
+  minReplicas: 2
+  maxReplicas: 16
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+---
+# HPA for Celery Workers
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: celery-worker-hpa
+  namespace: teknofest-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: celery-worker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+---
+# Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: teknofest-network-policy
+  namespace: teknofest-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: teknofest-api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: nginx-ingress
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teknofest-api-pdb
+  namespace: teknofest-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: teknofest-api
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: teknofest-api-monitor
+  namespace: teknofest-prod
+spec:
+  selector:
+    matchLabels:
+      app: teknofest-api
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s

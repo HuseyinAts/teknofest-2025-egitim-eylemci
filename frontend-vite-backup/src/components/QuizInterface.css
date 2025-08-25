@@ -1,0 +1,179 @@
+/* QuizInterface.css */
+.quiz-interface {
+  animation: fadeIn 0.5s ease-in;
+}
+
+.quiz-results {
+  animation: slideIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Progress bar animation */
+.progress-bar {
+  transition: width 0.5s ease-in-out;
+}
+
+/* Card hover effects */
+.quiz-card {
+  transition: all 0.3s ease;
+}
+
+.quiz-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Button animations */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition: width 0.4s, height 0.4s;
+}
+
+.btn-primary:hover::before {
+  width: 300px;
+  height: 300px;
+}
+
+/* Timer warning animation */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.timer-warning {
+  animation: pulse 1s infinite;
+  color: #ef4444;
+}
+
+/* Answer feedback animations */
+.answer-correct {
+  animation: correctAnswer 0.5s ease;
+}
+
+.answer-wrong {
+  animation: wrongAnswer 0.5s ease;
+}
+
+@keyframes correctAnswer {
+  0% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: #10b981;
+    transform: scale(1.02);
+  }
+  100% {
+    background-color: #d1fae5;
+  }
+}
+
+@keyframes wrongAnswer {
+  0% {
+    background-color: transparent;
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  50% {
+    background-color: #ef4444;
+    transform: translateX(5px);
+  }
+  75% {
+    transform: translateX(-5px);
+  }
+  100% {
+    background-color: #fee2e2;
+    transform: translateX(0);
+  }
+}
+
+/* Question transition */
+.question-transition {
+  animation: questionSlide 0.3s ease;
+}
+
+@keyframes questionSlide {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Score display animation */
+.score-display {
+  animation: scoreReveal 1s ease;
+}
+
+@keyframes scoreReveal {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .quiz-interface {
+    padding: 1rem;
+  }
+  
+  .question-text {
+    font-size: 1.125rem;
+  }
+  
+  .answer-option {
+    padding: 0.75rem;
+  }
+}

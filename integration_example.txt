@@ -1,0 +1,16 @@
+# Integration Example for Your Training Script
+
+# At the top of your training script, add:
+from tokenizer_manager import TokenizerManager
+
+# In your OptimizedModelManager class, modify the _load_tokenizer method:
+def _load_tokenizer(self, checkpoint_path=None):
+    """Load and configure tokenizer with fallback"""
+    
+    # Use TokenizerManager for robust loading
+    tokenizer_manager = TokenizerManager()
+    self.tokenizer = tokenizer_manager.get_tokenizer()
+    
+    return self.tokenizer
+
+# That's it! The tokenizer will now load with fallback options.

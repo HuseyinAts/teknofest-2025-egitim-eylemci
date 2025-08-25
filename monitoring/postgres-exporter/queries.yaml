@@ -1,0 +1,204 @@
+pg_replication:
+  query: "SELECT CASE WHEN NOT pg_is_in_recovery() THEN 0 ELSE GREATEST (0, EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))) END AS lag"
+  master: true
+  metrics:
+    - lag:
+        usage: "GAUGE"
+        description: "Replication lag behind master in seconds"
+
+pg_database:
+  query: |
+    SELECT 
+      pg_database.datname,
+      pg_database_size(pg_database.datname) as size_bytes,
+      age(datfrozenxid) as xid_age,
+      pg_stat_database.numbackends,
+      pg_stat_database.xact_commit,
+      pg_stat_database.xact_rollback,
+      pg_stat_database.blks_read,
+      pg_stat_database.blks_hit,
+      pg_stat_database.tup_returned,
+      pg_stat_database.tup_fetched,
+      pg_stat_database.tup_inserted,
+      pg_stat_database.tup_updated,
+      pg_stat_database.tup_deleted,
+      pg_stat_database.conflicts,
+      pg_stat_database.temp_files,
+      pg_stat_database.temp_bytes,
+      pg_stat_database.deadlocks,
+      pg_stat_database.blk_read_time,
+      pg_stat_database.blk_write_time
+    FROM 
+      pg_database
+    INNER JOIN
+      pg_stat_database ON pg_database.datname = pg_stat_database.datname
+    WHERE 
+      pg_database.datname NOT IN ('template0', 'template1', 'postgres')
+  metrics:
+    - datname:
+        usage: "LABEL"
+        description: "Name of the database"
+    - size_bytes:
+        usage: "GAUGE"
+        description: "Database size in bytes"
+    - xid_age:
+        usage: "GAUGE"
+        description: "Transaction ID age"
+    - numbackends:
+        usage: "GAUGE"
+        description: "Number of backends"
+    - xact_commit:
+        usage: "COUNTER"
+        description: "Number of committed transactions"
+    - xact_rollback:
+        usage: "COUNTER"
+        description: "Number of rolled back transactions"
+    - blks_read:
+        usage: "COUNTER"
+        description: "Number of disk blocks read"
+    - blks_hit:
+        usage: "COUNTER"
+        description: "Number of buffer hits"
+    - tup_returned:
+        usage: "COUNTER"
+        description: "Number of tuples returned"
+    - tup_fetched:
+        usage: "COUNTER"
+        description: "Number of tuples fetched"
+    - tup_inserted:
+        usage: "COUNTER"
+        description: "Number of tuples inserted"
+    - tup_updated:
+        usage: "COUNTER"
+        description: "Number of tuples updated"
+    - tup_deleted:
+        usage: "COUNTER"
+        description: "Number of tuples deleted"
+    - conflicts:
+        usage: "COUNTER"
+        description: "Number of conflicts"
+    - temp_files:
+        usage: "COUNTER"
+        description: "Number of temporary files created"
+    - temp_bytes:
+        usage: "COUNTER"
+        description: "Amount of data written to temporary files"
+    - deadlocks:
+        usage: "COUNTER"
+        description: "Number of deadlocks"
+    - blk_read_time:
+        usage: "COUNTER"
+        description: "Time spent reading blocks (ms)"
+    - blk_write_time:
+        usage: "COUNTER"
+        description: "Time spent writing blocks (ms)"
+
+pg_stat_user_tables:
+  query: |
+    SELECT 
+      schemaname,
+      tablename,
+      pg_relation_size(quote_ident(schemaname)||'.'||quote_ident(tablename)) as size_bytes,
+      n_tup_ins,
+      n_tup_upd,
+      n_tup_del,
+      n_tup_hot_upd,
+      n_live_tup,
+      n_dead_tup,
+      n_mod_since_analyze,
+      COALESCE(last_vacuum, '1970-01-01Z') as last_vacuum,
+      COALESCE(last_autovacuum, '1970-01-01Z') as last_autovacuum,
+      COALESCE(last_analyze, '1970-01-01Z') as last_analyze,
+      COALESCE(last_autoanalyze, '1970-01-01Z') as last_autoanalyze,
+      vacuum_count,
+      autovacuum_count,
+      analyze_count,
+      autoanalyze_count
+    FROM 
+      pg_stat_user_tables
+  metrics:
+    - schemaname:
+        usage: "LABEL"
+        description: "Schema name"
+    - tablename:
+        usage: "LABEL"
+        description: "Table name"
+    - size_bytes:
+        usage: "GAUGE"
+        description: "Table size in bytes"
+    - n_tup_ins:
+        usage: "COUNTER"
+        description: "Number of tuples inserted"
+    - n_tup_upd:
+        usage: "COUNTER"
+        description: "Number of tuples updated"
+    - n_tup_del:
+        usage: "COUNTER"
+        description: "Number of tuples deleted"
+    - n_tup_hot_upd:
+        usage: "COUNTER"
+        description: "Number of HOT updates"
+    - n_live_tup:
+        usage: "GAUGE"
+        description: "Number of live tuples"
+    - n_dead_tup:
+        usage: "GAUGE"
+        description: "Number of dead tuples"
+    - n_mod_since_analyze:
+        usage: "GAUGE"
+        description: "Number of modifications since last analyze"
+    - last_vacuum:
+        usage: "GAUGE"
+        description: "Last vacuum time"
+    - last_autovacuum:
+        usage: "GAUGE"
+        description: "Last autovacuum time"
+    - last_analyze:
+        usage: "GAUGE"
+        description: "Last analyze time"
+    - last_autoanalyze:
+        usage: "GAUGE"
+        description: "Last autoanalyze time"
+    - vacuum_count:
+        usage: "COUNTER"
+        description: "Number of manual vacuums"
+    - autovacuum_count:
+        usage: "COUNTER"
+        description: "Number of autovacuums"
+    - analyze_count:
+        usage: "COUNTER"
+        description: "Number of manual analyzes"
+    - autoanalyze_count:
+        usage: "COUNTER"
+        description: "Number of autoanalyzes"
+
+pg_slow_queries:
+  query: |
+    SELECT 
+      COUNT(*) as slow_queries
+    FROM 
+      pg_stat_activity
+    WHERE 
+      state != 'idle'
+      AND query_start < NOW() - INTERVAL '1 minute'
+  metrics:
+    - slow_queries:
+        usage: "GAUGE"
+        description: "Number of queries running for more than 1 minute"
+
+pg_locks:
+  query: |
+    SELECT 
+      mode,
+      COUNT(*) as count
+    FROM 
+      pg_locks
+    GROUP BY 
+      mode
+  metrics:
+    - mode:
+        usage: "LABEL"
+        description: "Lock mode"
+    - count:
+        usage: "GAUGE"
+        description: "Number of locks"

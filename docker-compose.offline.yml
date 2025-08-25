@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # Main API with offline support
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379/0
+      - OFFLINE_MODE_ENABLED=true
+      - CACHE_TTL=3600
+      - SYNC_INTERVAL=300
+      - MAX_OFFLINE_QUEUE_SIZE=1000
+      - CACHE_SIZE_LIMIT_MB=500
+    volumes:
+      - ./data/offline_cache:/app/data/offline_cache
+      - ./data/offline_queue:/app/data/offline_queue
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL for persistent storage
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=teknofest
+      - POSTGRES_PASSWORD=teknofest2025
+      - POSTGRES_DB=teknofest_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teknofest"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and queue
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nginx for serving frontend with service worker
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html
+      - ./nginx/offline.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+
+  # Offline sync worker
+  sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    command: python -m src.workers.offline_sync
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379/0
+      - SYNC_INTERVAL=60
+      - BATCH_SIZE=100
+    volumes:
+      - ./data/offline_cache:/app/data/offline_cache
+      - ./data/offline_queue:/app/data/offline_queue
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+
+  # Cache cleaner worker
+  cache-cleaner:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    command: python -m src.workers.cache_cleaner
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://teknofest:teknofest2025@postgres:5432/teknofest_db
+      - REDIS_URL=redis://redis:6379/0
+      - CLEANUP_INTERVAL=3600
+      - MAX_CACHE_AGE_HOURS=24
+    volumes:
+      - ./data/offline_cache:/app/data/offline_cache
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - teknofest-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  teknofest-network:
+    driver: bridge

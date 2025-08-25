@@ -1,0 +1,90 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "HuseyinAts"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    allow:
+      - dependency-type: "all"
+    groups:
+      python-dev:
+        patterns:
+          - "pytest*"
+          - "black"
+          - "flake8*"
+          - "mypy*"
+          - "pylint*"
+      python-security:
+        patterns:
+          - "bandit*"
+          - "safety*"
+
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    reviewers:
+      - "HuseyinAts"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+    reviewers:
+      - "HuseyinAts"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+
+  # npm dependencies (if frontend exists)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "HuseyinAts"
+    labels:
+      - "dependencies"
+      - "javascript"
+    allow:
+      - dependency-type: "all"
+    ignore:
+      - dependency-name: "react"
+        versions: ["18.x", "19.x"]
+    groups:
+      frontend-dev:
+        patterns:
+          - "eslint*"
+          - "jest*"
+          - "prettier*"
+      frontend-build:
+        patterns:
+          - "webpack*"
+          - "babel*"
+          - "vite*"

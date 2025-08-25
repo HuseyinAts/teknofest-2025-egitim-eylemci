@@ -1,0 +1,278 @@
+name: Monitoring & Observability
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch:
+
+env:
+  MONITORING_ENDPOINTS: |
+    https://teknofest-egitim.example.com
+    https://staging.teknofest-egitim.example.com
+    https://api.teknofest-egitim.example.com
+
+jobs:
+  # Health Checks
+  health-check:
+    name: Health Check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [production, staging]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check service health
+        run: |
+          if [ "${{ matrix.environment }}" == "production" ]; then
+            URL="https://teknofest-egitim.example.com/health"
+          else
+            URL="https://staging.teknofest-egitim.example.com/health"
+          fi
+          
+          response=$(curl -s -o /dev/null -w "%{http_code}" $URL)
+          if [ $response -eq 200 ]; then
+            echo "Service is healthy"
+          else
+            echo "Service is unhealthy (HTTP $response)"
+            exit 1
+          fi
+
+      - name: Check API endpoints
+        run: |
+          endpoints=(
+            "/api/v1/status"
+            "/api/v1/health"
+            "/api/v1/metrics"
+          )
+          
+          for endpoint in "${endpoints[@]}"; do
+            if [ "${{ matrix.environment }}" == "production" ]; then
+              URL="https://api.teknofest-egitim.example.com$endpoint"
+            else
+              URL="https://staging-api.teknofest-egitim.example.com$endpoint"
+            fi
+            
+            response=$(curl -s -o /dev/null -w "%{http_code}" $URL)
+            echo "Checking $URL: HTTP $response"
+            
+            if [ $response -ne 200 ] && [ $response -ne 401 ]; then
+              echo "Endpoint $endpoint is not responding correctly"
+              exit 1
+            fi
+          done
+
+  # Performance Monitoring
+  performance:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            https://teknofest-egitim.example.com
+            https://staging.teknofest-egitim.example.com
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+      - name: Check response times
+        run: |
+          urls=(
+            "https://teknofest-egitim.example.com"
+            "https://api.teknofest-egitim.example.com/api/v1/status"
+          )
+          
+          for url in "${urls[@]}"; do
+            response_time=$(curl -o /dev/null -s -w '%{time_total}' $url)
+            echo "Response time for $url: ${response_time}s"
+            
+            # Alert if response time > 2 seconds
+            if (( $(echo "$response_time > 2" | bc -l) )); then
+              echo "WARNING: Slow response time detected for $url"
+            fi
+          done
+
+  # Uptime Monitoring
+  uptime:
+    name: Uptime Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - name: Monitor uptime
+        uses: upptime/uptime-monitor@v1.29.0
+        with:
+          command: "update"
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+
+      - name: Check SSL certificates
+        run: |
+          domains=(
+            "teknofest-egitim.example.com"
+            "api.teknofest-egitim.example.com"
+          )
+          
+          for domain in "${domains[@]}"; do
+            expiry_date=$(echo | openssl s_client -servername $domain -connect $domain:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+            expiry_epoch=$(date -d "$expiry_date" +%s)
+            current_epoch=$(date +%s)
+            days_until_expiry=$(( ($expiry_epoch - $current_epoch) / 86400 ))
+            
+            echo "SSL certificate for $domain expires in $days_until_expiry days"
+            
+            if [ $days_until_expiry -lt 30 ]; then
+              echo "WARNING: SSL certificate expiring soon for $domain"
+            fi
+          done
+
+  # Resource Monitoring
+  resources:
+    name: Resource Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Kubernetes resources
+        run: |
+          # This would typically connect to your K8s cluster
+          echo "Checking Kubernetes resources..."
+          # kubectl top nodes
+          # kubectl top pods -n teknofest-egitim
+
+      - name: Check database performance
+        env:
+          DATABASE_URL: ${{ secrets.MONITORING_DATABASE_URL }}
+        run: |
+          echo "Checking database performance..."
+          # Add database performance checks here
+
+      - name: Check Redis performance
+        env:
+          REDIS_URL: ${{ secrets.MONITORING_REDIS_URL }}
+        run: |
+          echo "Checking Redis performance..."
+          # Add Redis performance checks here
+
+  # Log Analysis
+  logs:
+    name: Log Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Analyze error logs
+        run: |
+          echo "Analyzing application logs for errors..."
+          # This would typically connect to your logging service
+          # Example: query CloudWatch, ELK stack, etc.
+
+      - name: Check for security events
+        run: |
+          echo "Checking for security events in logs..."
+          # Add security log analysis here
+
+  # Synthetic Monitoring
+  synthetic:
+    name: Synthetic Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install -g playwright
+          playwright install
+
+      - name: Run synthetic tests
+        run: |
+          cat > synthetic-test.js << 'EOF'
+          const { chromium } = require('playwright');
+          
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+            
+            // Test user login flow
+            await page.goto('https://teknofest-egitim.example.com');
+            await page.fill('#username', 'test@example.com');
+            await page.fill('#password', 'password');
+            await page.click('#login-button');
+            
+            // Verify successful login
+            await page.waitForSelector('#dashboard');
+            
+            console.log('Synthetic test passed');
+            await browser.close();
+          })();
+          EOF
+          
+          node synthetic-test.js || true
+
+  # Metrics Collection
+  metrics:
+    name: Collect Metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect application metrics
+        run: |
+          # Collect metrics from Prometheus endpoints
+          curl -s https://api.teknofest-egitim.example.com/metrics > metrics.txt
+          
+          # Parse and analyze metrics
+          echo "Analyzing application metrics..."
+          grep -E "http_requests_total|response_time|error_rate" metrics.txt || true
+
+      - name: Push metrics to monitoring service
+        run: |
+          echo "Pushing metrics to monitoring service..."
+          # Push to Datadog, New Relic, CloudWatch, etc.
+
+  # Alert Management
+  alerts:
+    name: Alert Management
+    runs-on: ubuntu-latest
+    needs: [health-check, performance, resources]
+    if: failure()
+    steps:
+      - name: Send alert to Slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: |
+            🚨 Monitoring Alert
+            Environment: ${{ matrix.environment }}
+            Failed checks: ${{ needs.health-check.result }}, ${{ needs.performance.result }}, ${{ needs.resources.result }}
+            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Create incident
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Monitoring Alert - ${new Date().toISOString()}`,
+              body: `## Monitoring Alert
+              
+              One or more monitoring checks have failed.
+              
+              ### Failed Checks
+              - Health Check: ${{ needs.health-check.result }}
+              - Performance: ${{ needs.performance.result }}
+              - Resources: ${{ needs.resources.result }}
+              
+              ### Action Required
+              Please investigate immediately.
+              
+              [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+              labels: ['incident', 'monitoring', 'urgent']
+            });
+
+      - name: Page on-call engineer
+        run: |
+          echo "Paging on-call engineer..."
+          # Integration with PagerDuty, OpsGenie, etc.

@@ -1,0 +1,70 @@
+[Unit]
+Description=TEKNOFEST 2025 API Server
+Documentation=https://teknofest.example.com/docs
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=notify
+User=teknofest
+Group=teknofest
+WorkingDirectory=/opt/teknofest-api
+Environment="PATH=/opt/teknofest-api/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="APP_ENV=production"
+Environment="LOG_LEVEL=info"
+
+# Resource Limits
+LimitNOFILE=65536
+LimitNPROC=4096
+LimitCORE=infinity
+
+# Memory Limits
+MemoryHigh=4G
+MemoryMax=6G
+
+# CPU Limits
+CPUWeight=100
+CPUQuota=400%
+
+# Security Settings
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/teknofest-api/logs /opt/teknofest-api/uploads /tmp
+
+# Start Command
+ExecStartPre=/opt/teknofest-api/venv/bin/python -m pip install --upgrade pip
+ExecStartPre=/opt/teknofest-api/venv/bin/python -m pip install -r requirements.txt
+ExecStart=/opt/teknofest-api/venv/bin/gunicorn \
+    src.app:app \
+    --config /opt/teknofest-api/gunicorn_config.py \
+    --pid /var/run/teknofest-api.pid \
+    --error-logfile /var/log/teknofest/error.log \
+    --access-logfile /var/log/teknofest/access.log
+
+# Reload Command (graceful restart)
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Stop Command (graceful shutdown)
+ExecStop=/bin/kill -s TERM $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Restart Policy
+Restart=always
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Health Check
+ExecStartPost=/bin/sleep 5
+ExecStartPost=/usr/bin/curl -f http://localhost:8000/health || exit 1
+
+# Notification
+NotifyAccess=all
+WatchdogSec=60
+
+[Install]
+WantedBy=multi-user.target

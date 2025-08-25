@@ -1,0 +1,186 @@
+# Production Configuration
+# TEKNOFEST 2025 - Eğitim Teknolojileri
+
+app:
+  name: "TEKNOFEST Eğitim Eylemci"
+  version: "1.0.0"
+  environment: production
+  debug: false
+  
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  timeout: 30
+  max_requests: 1000
+  max_requests_jitter: 50
+  
+database:
+  host: ${DATABASE_HOST:localhost}
+  port: ${DATABASE_PORT:5432}
+  name: teknofest_prod
+  user: ${DATABASE_USER:teknofest_user}
+  password: ${DATABASE_PASSWORD}
+  pool_size: 20
+  max_overflow: 10
+  pool_pre_ping: true
+  echo: false
+  
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  db: 0
+  password: ${REDIS_PASSWORD}
+  max_connections: 50
+  decode_responses: true
+  
+security:
+  secret_key: ${SECRET_KEY}
+  jwt_secret: ${JWT_SECRET_KEY}
+  jwt_algorithm: HS256
+  jwt_expiration: 3600
+  password_salt_rounds: 12
+  allowed_origins:
+    - "https://teknofest.yourdomain.com"
+    - "https://api.teknofest.yourdomain.com"
+  
+rate_limiting:
+  enabled: true
+  default:
+    rate: 100
+    per: 60
+  auth:
+    rate: 5
+    per: 60
+  heavy:
+    rate: 10
+    per: 60
+  
+caching:
+  type: redis
+  default_ttl: 300
+  key_prefix: "teknofest:"
+  strategies:
+    quiz: 600
+    study_plan: 1800
+    performance: 300
+    
+models:
+  provider: huggingface
+  default_model: "Qwen/Qwen2.5-7B-Instruct"
+  api_key: ${MODEL_API_KEY}
+  timeout: 60
+  max_tokens: 2048
+  temperature: 0.7
+  top_p: 0.9
+  
+agents:
+  study_buddy:
+    enabled: true
+    irt_discrimination: 1.0
+    irt_guessing: 0.25
+    irt_max_info: 2.5
+    max_questions_per_quiz: 50
+    
+  learning_path:
+    enabled: true
+    max_topics_per_path: 20
+    recommendation_threshold: 0.7
+    
+  accessibility:
+    enabled: true
+    supported_languages:
+      - tr
+      - en
+    text_to_speech: true
+    
+monitoring:
+  enabled: true
+  prometheus:
+    port: 9090
+    path: /metrics
+  grafana:
+    port: 3000
+    dashboards:
+      - teknofest-overview
+      - agent-performance
+      - system-metrics
+  loki:
+    url: "http://loki:3100"
+    
+logging:
+  level: INFO
+  format: json
+  file:
+    enabled: true
+    path: /var/log/teknofest/app.log
+    max_size: 10485760
+    backup_count: 10
+  console:
+    enabled: true
+    colorize: false
+    
+storage:
+  upload_folder: /app/uploads
+  max_file_size: 10485760
+  allowed_extensions:
+    - pdf
+    - doc
+    - docx
+    - txt
+    - jpg
+    - jpeg
+    - png
+    
+external_services:
+  eba:
+    url: "https://api.eba.gov.tr"
+    timeout: 30
+    retry_count: 3
+  meb:
+    url: "https://api.meb.gov.tr"
+    timeout: 30
+    retry_count: 3
+    
+features:
+  ai_features: true
+  quiz_generation: true
+  study_plans: true
+  performance_tracking: true
+  collaborative_learning: true
+  gamification: true
+  
+performance:
+  response_compression: true
+  compression_level: 6
+  cache_headers: true
+  cache_control_max_age: 3600
+  connection_pooling: true
+  
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention_days: 30
+  s3:
+    bucket: teknofest-backups
+    region: ${AWS_REGION:eu-central-1}
+    
+health_check:
+  enabled: true
+  path: /health
+  interval: 30
+  timeout: 10
+  failure_threshold: 3
+  
+deployment:
+  strategy: rolling
+  max_surge: 1
+  max_unavailable: 0
+  readiness_probe:
+    path: /ready
+    initial_delay: 10
+    period: 5
+  liveness_probe:
+    path: /health
+    initial_delay: 30
+    period: 10
