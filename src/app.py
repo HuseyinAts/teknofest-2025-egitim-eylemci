@@ -21,6 +21,9 @@ from src.api.irt_routes import router as irt_router
 from src.api.gamification_routes import router as gamification_router
 from src.api.offline_routes import router as offline_router
 from src.api.auth_routes import router as auth_router
+from src.api.learning_path_routes import router as learning_path_router
+from src.api.study_buddy_routes import router as study_buddy_router
+from src.api.database_routes import router as database_router
 from src.core.offline_support import OfflineManager, OfflineMiddleware
 from src.core.security import SecurityMiddleware, SQLInjectionProtection
 from src.core.authentication import jwt_auth, get_current_user, UserLogin, UserRegister, TokenResponse
@@ -104,6 +107,9 @@ app = create_app()
 
 # Include routers
 app.include_router(auth_router)  # Auth routes first for security
+app.include_router(learning_path_router)
+app.include_router(study_buddy_router)
+app.include_router(database_router)
 app.include_router(irt_router)
 app.include_router(gamification_router)
 app.include_router(offline_router)

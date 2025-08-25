@@ -84,17 +84,28 @@ def get_database_url(async_mode: bool = False) -> str:
     if not url:
         raise ValueError("Database URL not configured")
     
-    # Convert to async URL if needed
-    if async_mode and url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://")
-    elif async_mode and url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://")
+    # Ensure correct driver for sync/async mode
+    if async_mode:
+        # Convert to async URL if needed
+        if "postgresql+asyncpg://" not in url:
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://")
+            elif url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+asyncpg://")
+            elif url.startswith("postgresql+psycopg2://"):
+                url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    else:
+        # Ensure synchronous URL (remove async drivers)
+        if "postgresql+asyncpg://" in url:
+            url = url.replace("postgresql+asyncpg://", "postgresql://")
+        elif "sqlite+aiosqlite://" in url:
+            url = url.replace("sqlite+aiosqlite://", "sqlite://")
     
     return url
 
 
 # Configure connection pool based on environment
-def get_pool_config():
+def get_pool_config(async_mode: bool = False):
     """
     Get optimized connection pool configuration based on environment.
     
@@ -109,6 +120,29 @@ def get_pool_config():
         "echo_pool": settings.app_debug,  # Pool logging in debug mode
     }
     
+    # For async engines, we cannot use QueuePool - must use NullPool or StaticPool
+    if async_mode:
+        if settings.is_production():
+            # Production async configuration - use NullPool for better async compatibility
+            return {
+                **base_config,
+                "poolclass": NullPool,
+                # NullPool doesn't support pool_size or max_overflow
+            }
+        elif settings.app_env == "testing" or settings.is_testing():
+            # Testing async configuration
+            return {
+                **base_config,
+                "poolclass": NullPool,
+            }
+        else:
+            # Development async configuration
+            return {
+                **base_config,
+                "poolclass": NullPool,
+            }
+    
+    # Synchronous engine configuration
     if settings.is_production():
         # Production configuration
         return {
@@ -121,7 +155,7 @@ def get_pool_config():
             "pool_reset_on_return": "rollback",  # Always rollback on return
             "pool_use_lifo": True,  # Use LIFO to keep connections warm
         }
-    elif settings.app_env == "testing":
+    elif settings.app_env == "testing" or settings.is_testing():
         # Testing configuration - use static pool
         return {
             **base_config,
@@ -143,7 +177,7 @@ def get_pool_config():
 
 # Create synchronous engine
 # Use appropriate pool based on testing mode
-sync_pool_config = get_pool_config()
+sync_pool_config = get_pool_config(async_mode=False)
 if settings.is_testing() and "sqlite" in settings.database_url:
     # SQLite in testing needs special handling
     sync_pool_config = {
@@ -160,19 +194,12 @@ engine = create_engine(
 )
 
 # Create asynchronous engine
-# Note: Async engines need NullPool or StaticPool, not QueuePool
-# For async engines, we use NullPool in testing and StaticPool otherwise
-if settings.is_testing():
-    async_pool_config = {
-        "poolclass": NullPool,
-        "pool_pre_ping": True,
-    }
-else:
-    async_pool_config = {
-        "poolclass": StaticPool,
-        "pool_pre_ping": True,
-        "connect_args": {"check_same_thread": False} if "sqlite" in settings.database_url else {}
-    }
+# Use async-compatible pool configuration
+async_pool_config = get_pool_config(async_mode=True)
+
+# Add SQLite-specific args if needed
+if "sqlite" in settings.database_url:
+    async_pool_config["connect_args"] = {"check_same_thread": False}
 
 async_engine = create_async_engine(
     get_database_url(async_mode=True),

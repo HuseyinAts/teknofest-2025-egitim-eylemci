@@ -1,23 +1,27 @@
 """
-Database models for TEKNOFEST 2025 Education Platform
+Database Models - Production Ready Implementation
+TEKNOFEST 2025 - Education Platform Database Schema
 """
 
 import uuid
+import enum
 from datetime import datetime
-from typing import Optional, List
-
+from typing import Optional, List, Dict, Any
 from sqlalchemy import (
     Column, String, Integer, Float, Boolean, DateTime, Text, JSON,
-    ForeignKey, Table, Index, UniqueConstraint, CheckConstraint,
+    ForeignKey, UniqueConstraint, Index, CheckConstraint, Table,
     Enum as SQLEnum
 )
-from sqlalchemy.orm import relationship, backref
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship, validates, backref
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
-import enum
+from sqlalchemy.ext.hybrid import hybrid_property
 
-from .base import Base
+Base = declarative_base()
 
+
+# ==================== Enums ====================
 
 class UserRole(enum.Enum):
     """User role enumeration"""
@@ -25,517 +29,675 @@ class UserRole(enum.Enum):
     TEACHER = "teacher"
     ADMIN = "admin"
     PARENT = "parent"
+    GUEST = "guest"
 
 
 class DifficultyLevel(enum.Enum):
     """Difficulty level enumeration"""
-    BEGINNER = "beginner"
-    INTERMEDIATE = "intermediate"
-    ADVANCED = "advanced"
-    EXPERT = "expert"
+    VERY_EASY = 0.2
+    EASY = 0.4
+    MEDIUM = 0.6
+    HARD = 0.8
+    VERY_HARD = 1.0
 
 
-class ContentType(enum.Enum):
-    """Content type enumeration"""
-    VIDEO = "video"
-    TEXT = "text"
-    QUIZ = "quiz"
-    EXERCISE = "exercise"
-    PROJECT = "project"
+class QuestionType(enum.Enum):
+    """Question type enumeration"""
+    MULTIPLE_CHOICE = "multiple_choice"
+    TRUE_FALSE = "true_false"
+    SHORT_ANSWER = "short_answer"
+    ESSAY = "essay"
+    MATCHING = "matching"
+    FILL_BLANK = "fill_blank"
 
 
-# Association tables for many-to-many relationships
-user_learning_paths = Table(
-    'user_learning_paths',
+class LearningStyle(enum.Enum):
+    """Learning style enumeration"""
+    VISUAL = "visual"
+    AUDITORY = "auditory"
+    READING = "reading"
+    KINESTHETIC = "kinesthetic"
+    MIXED = "mixed"
+
+
+# ==================== Association Tables ====================
+
+# Many-to-many relationship between students and courses
+enrollment_table = Table(
+    'enrollments',
     Base.metadata,
-    Column('user_id', UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE')),
-    Column('learning_path_id', UUID(as_uuid=True), ForeignKey('learning_paths.id', ondelete='CASCADE')),
-    Column('enrolled_at', DateTime(timezone=True), server_default=func.now()),
-    Column('progress', Float, default=0.0),
-    Column('completed_at', DateTime(timezone=True), nullable=True),
-    UniqueConstraint('user_id', 'learning_path_id', name='uq_user_learning_path')
+    Column('student_id', Integer, ForeignKey('students.id', ondelete='CASCADE')),
+    Column('course_id', Integer, ForeignKey('courses.id', ondelete='CASCADE')),
+    Column('enrolled_at', DateTime, default=func.now()),
+    Column('completed', Boolean, default=False),
+    UniqueConstraint('student_id', 'course_id', name='unique_enrollment')
 )
 
-user_achievements = Table(
-    'user_achievements',
+# Many-to-many relationship between quizzes and questions
+quiz_questions = Table(
+    'quiz_questions',
     Base.metadata,
-    Column('user_id', UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE')),
-    Column('achievement_id', UUID(as_uuid=True), ForeignKey('achievements.id', ondelete='CASCADE')),
-    Column('earned_at', DateTime(timezone=True), server_default=func.now()),
-    UniqueConstraint('user_id', 'achievement_id', name='uq_user_achievement')
+    Column('quiz_id', Integer, ForeignKey('quizzes.id', ondelete='CASCADE')),
+    Column('question_id', Integer, ForeignKey('questions.id', ondelete='CASCADE')),
+    Column('order', Integer, default=0),
+    UniqueConstraint('quiz_id', 'question_id', name='unique_quiz_question')
 )
 
+
+# ==================== Base Mixins ====================
 
 class TimestampMixin:
-    """Mixin for adding timestamp fields"""
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    """Mixin for timestamp fields"""
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
 
 
-class User(Base, TimestampMixin):
-    """User model"""
+class SoftDeleteMixin:
+    """Mixin for soft delete functionality"""
+    is_deleted = Column(Boolean, default=False, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+
+
+# ==================== Main Models ====================
+
+class User(Base, TimestampMixin, SoftDeleteMixin):
+    """User model - base for all user types"""
     __tablename__ = 'users'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    username = Column(String(100), unique=True, nullable=False, index=True)
-    full_name = Column(String(255), nullable=False)
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Authentication fields
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(100), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
+    
+    # Profile fields
+    full_name = Column(String(100), nullable=True)
+    phone = Column(String(20), nullable=True)
+    avatar_url = Column(String(255), nullable=True)
+    bio = Column(Text, nullable=True)
+    
+    # Role and permissions
     role = Column(SQLEnum(UserRole), default=UserRole.STUDENT, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
     
-    # Profile information
-    avatar_url = Column(String(500), nullable=True)
-    bio = Column(Text, nullable=True)
-    date_of_birth = Column(DateTime, nullable=True)
-    phone_number = Column(String(20), nullable=True)
+    # Tracking fields
+    last_login = Column(DateTime, nullable=True)
+    login_count = Column(Integer, default=0, nullable=False)
     
-    # Learning preferences
-    preferred_language = Column(String(10), default='tr', nullable=False)
-    learning_style = Column(JSONB, nullable=True)  # Visual, auditory, kinesthetic, etc.
-    interests = Column(ARRAY(String), nullable=True)
-    
-    # Statistics
-    total_study_time = Column(Integer, default=0)  # in minutes
-    streak_days = Column(Integer, default=0)
-    points = Column(Integer, default=0)
-    level = Column(Integer, default=1)
-    
-    # OAuth fields
-    oauth_provider = Column(String(50), nullable=True)
-    oauth_id = Column(String(255), nullable=True)
-    
-    # Security
-    last_login_at = Column(DateTime(timezone=True), nullable=True)
-    last_login_ip = Column(String(45), nullable=True)
-    failed_login_attempts = Column(Integer, default=0)
-    locked_until = Column(DateTime(timezone=True), nullable=True)
+    # JSON fields for flexible data
+    preferences = Column(JSON, default={}, nullable=True)
+    metadata = Column(JSON, default={}, nullable=True)
     
     # Relationships
-    learning_paths = relationship('LearningPath', secondary=user_learning_paths, back_populates='users')
-    study_sessions = relationship('StudySession', back_populates='user', cascade='all, delete-orphan')
-    assessments = relationship('Assessment', back_populates='user', cascade='all, delete-orphan')
-    achievements = relationship('Achievement', secondary=user_achievements, back_populates='users')
-    notifications = relationship('Notification', back_populates='user', cascade='all, delete-orphan')
+    student_profile = relationship("Student", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    teacher_profile = relationship("Teacher", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    taught_courses = relationship("Course", back_populates="teacher", foreign_keys="Course.teacher_id")
+    created_quizzes = relationship("Quiz", back_populates="creator", foreign_keys="Quiz.created_by_id")
     
     # Indexes
     __table_args__ = (
-        Index('ix_users_email_active', 'email', 'is_active'),
-        Index('ix_users_role_active', 'role', 'is_active'),
-        CheckConstraint('streak_days >= 0', name='check_streak_positive'),
-        CheckConstraint('points >= 0', name='check_points_positive'),
-        CheckConstraint('level >= 1', name='check_level_positive'),
+        Index('idx_user_email_active', 'email', 'is_active'),
+        Index('idx_user_role', 'role'),
+        CheckConstraint('length(username) >= 3', name='check_username_length'),
     )
+    
+    @validates('email')
+    def validate_email(self, key, value):
+        """Validate email format"""
+        if '@' not in value:
+            raise ValueError("Invalid email address")
+        return value.lower()
+    
+    def __repr__(self):
+        return f"<User(id={self.id}, username={self.username}, role={self.role})>"
 
 
-class LearningPath(Base, TimestampMixin):
-    """Learning path model"""
-    __tablename__ = 'learning_paths'
+class Student(Base, TimestampMixin):
+    """Student profile model"""
+    __tablename__ = 'students'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=False)
-    slug = Column(String(255), unique=True, nullable=False, index=True)
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
     
-    # Content
-    objectives = Column(ARRAY(String), nullable=False)
-    prerequisites = Column(ARRAY(String), nullable=True)
-    tags = Column(ARRAY(String), nullable=True)
+    # Foreign key to User
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False)
     
-    # Metadata
-    difficulty = Column(SQLEnum(DifficultyLevel), default=DifficultyLevel.BEGINNER, nullable=False)
-    estimated_hours = Column(Float, nullable=False)
-    language = Column(String(10), default='tr', nullable=False)
+    # Academic information
+    grade = Column(Integer, nullable=False)
+    school = Column(String(200), nullable=True)
+    student_number = Column(String(50), nullable=True, unique=True)
     
-    # AI-generated content
-    ai_generated = Column(Boolean, default=False)
-    ai_model = Column(String(100), nullable=True)
-    ai_parameters = Column(JSONB, nullable=True)
+    # Learning profile
+    learning_style = Column(SQLEnum(LearningStyle), default=LearningStyle.MIXED, nullable=False)
+    current_level = Column(Float, default=0.5, nullable=False)
+    target_level = Column(Float, default=0.8, nullable=False)
+    study_hours_per_day = Column(Float, default=2.0, nullable=False)
     
-    # Statistics
-    enrollment_count = Column(Integer, default=0)
-    completion_count = Column(Integer, default=0)
-    average_rating = Column(Float, nullable=True)
+    # Performance metrics
+    total_points = Column(Integer, default=0, nullable=False)
+    quiz_count = Column(Integer, default=0, nullable=False)
+    average_score = Column(Float, default=0.0, nullable=False)
+    streak_days = Column(Integer, default=0, nullable=False)
     
-    # Publishing
-    is_published = Column(Boolean, default=False)
-    published_at = Column(DateTime(timezone=True), nullable=True)
+    # JSON fields
+    weak_topics = Column(JSON, default=[], nullable=True)
+    strong_topics = Column(JSON, default=[], nullable=True)
+    achievements = Column(JSON, default=[], nullable=True)
     
     # Relationships
-    users = relationship('User', secondary=user_learning_paths, back_populates='learning_paths')
-    modules = relationship('Module', back_populates='learning_path', cascade='all, delete-orphan')
+    user = relationship("User", back_populates="student_profile")
+    enrolled_courses = relationship("Course", secondary=enrollment_table, back_populates="enrolled_students")
+    progress_records = relationship("Progress", back_populates="student", cascade="all, delete-orphan")
+    answers = relationship("Answer", back_populates="student", cascade="all, delete-orphan")
+    learning_paths = relationship("LearningPath", back_populates="student", cascade="all, delete-orphan")
     
+    # Constraints
     __table_args__ = (
-        Index('ix_learning_paths_difficulty', 'difficulty'),
-        Index('ix_learning_paths_published', 'is_published'),
-        CheckConstraint('estimated_hours > 0', name='check_estimated_hours_positive'),
+        CheckConstraint('grade >= 1 AND grade <= 12', name='check_grade_range'),
+        CheckConstraint('current_level >= 0 AND current_level <= 1', name='check_current_level'),
+        CheckConstraint('target_level >= 0 AND target_level <= 1', name='check_target_level'),
+        Index('idx_student_grade', 'grade'),
     )
+    
+    def __repr__(self):
+        return f"<Student(id={self.id}, user_id={self.user_id}, grade={self.grade})>"
+
+
+class Teacher(Base, TimestampMixin):
+    """Teacher profile model"""
+    __tablename__ = 'teachers'
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign key to User
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False)
+    
+    # Professional information
+    subject = Column(String(100), nullable=False)
+    qualification = Column(String(200), nullable=True)
+    years_of_experience = Column(Integer, default=0, nullable=False)
+    school = Column(String(200), nullable=True)
+    
+    # Performance metrics
+    total_students = Column(Integer, default=0, nullable=False)
+    courses_created = Column(Integer, default=0, nullable=False)
+    average_rating = Column(Float, default=0.0, nullable=False)
+    
+    # JSON fields
+    specializations = Column(JSON, default=[], nullable=True)
+    certifications = Column(JSON, default=[], nullable=True)
+    
+    # Relationships
+    user = relationship("User", back_populates="teacher_profile")
+    
+    # Constraints
+    __table_args__ = (
+        CheckConstraint('years_of_experience >= 0', name='check_experience'),
+        CheckConstraint('average_rating >= 0 AND average_rating <= 5', name='check_rating'),
+    )
+    
+    def __repr__(self):
+        return f"<Teacher(id={self.id}, user_id={self.user_id}, subject={self.subject})>"
+
+
+class Course(Base, TimestampMixin, SoftDeleteMixin):
+    """Course model"""
+    __tablename__ = 'courses'
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Course information
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    subject = Column(String(100), nullable=False)
+    grade_level = Column(Integer, nullable=False)
+    
+    # Teacher
+    teacher_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    
+    # Course details
+    difficulty = Column(Float, default=0.5, nullable=False)
+    estimated_hours = Column(Integer, default=30, nullable=False)
+    max_students = Column(Integer, default=100, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_published = Column(Boolean, default=False, nullable=False)
+    
+    # Curriculum alignment
+    curriculum_alignment = Column(String(50), nullable=True)
+    prerequisites = Column(JSON, default=[], nullable=True)
+    learning_objectives = Column(JSON, default=[], nullable=True)
+    
+    # Statistics
+    enrolled_count = Column(Integer, default=0, nullable=False)
+    completion_rate = Column(Float, default=0.0, nullable=False)
+    average_score = Column(Float, default=0.0, nullable=False)
+    
+    # Relationships
+    teacher = relationship("User", back_populates="taught_courses", foreign_keys=[teacher_id])
+    enrolled_students = relationship("Student", secondary=enrollment_table, back_populates="enrolled_courses")
+    modules = relationship("Module", back_populates="course", cascade="all, delete-orphan")
+    quizzes = relationship("Quiz", back_populates="course", cascade="all, delete-orphan")
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_course_subject_grade', 'subject', 'grade_level'),
+        Index('idx_course_active_published', 'is_active', 'is_published'),
+        CheckConstraint('difficulty >= 0 AND difficulty <= 1', name='check_course_difficulty'),
+        CheckConstraint('grade_level >= 1 AND grade_level <= 12', name='check_course_grade'),
+    )
+    
+    def __repr__(self):
+        return f"<Course(id={self.id}, title={self.title}, subject={self.subject})>"
 
 
 class Module(Base, TimestampMixin):
-    """Module within a learning path"""
+    """Course module model"""
     __tablename__ = 'modules'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    learning_path_id = Column(UUID(as_uuid=True), ForeignKey('learning_paths.id', ondelete='CASCADE'), nullable=False)
-    title = Column(String(255), nullable=False)
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign key
+    course_id = Column(Integer, ForeignKey('courses.id', ondelete='CASCADE'), nullable=False)
+    
+    # Module information
+    title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
-    order_index = Column(Integer, nullable=False)
+    order = Column(Integer, default=0, nullable=False)
     
     # Content
-    content_type = Column(SQLEnum(ContentType), nullable=False)
-    content_url = Column(String(500), nullable=True)
-    content_data = Column(JSONB, nullable=True)
+    content = Column(Text, nullable=True)
+    video_url = Column(String(255), nullable=True)
+    resources = Column(JSON, default=[], nullable=True)
     
     # Requirements
-    estimated_minutes = Column(Integer, default=30)
-    is_mandatory = Column(Boolean, default=True)
+    estimated_time = Column(Integer, default=60, nullable=False)  # in minutes
+    is_required = Column(Boolean, default=True, nullable=False)
     
     # Relationships
-    learning_path = relationship('LearningPath', back_populates='modules')
-    progress_records = relationship('Progress', back_populates='module', cascade='all, delete-orphan')
+    course = relationship("Course", back_populates="modules")
     
+    # Indexes
     __table_args__ = (
-        UniqueConstraint('learning_path_id', 'order_index', name='uq_module_order'),
-        Index('ix_modules_learning_path', 'learning_path_id'),
+        Index('idx_module_course_order', 'course_id', 'order'),
+        UniqueConstraint('course_id', 'order', name='unique_module_order'),
     )
+    
+    def __repr__(self):
+        return f"<Module(id={self.id}, title={self.title}, course_id={self.course_id})>"
 
 
-class StudySession(Base, TimestampMixin):
-    """Study session tracking"""
-    __tablename__ = 'study_sessions'
+class Quiz(Base, TimestampMixin, SoftDeleteMixin):
+    """Quiz model"""
+    __tablename__ = 'quizzes'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    module_id = Column(UUID(as_uuid=True), ForeignKey('modules.id', ondelete='SET NULL'), nullable=True)
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
     
-    # Session data
-    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    ended_at = Column(DateTime(timezone=True), nullable=True)
-    duration_minutes = Column(Integer, nullable=True)
+    # Quiz information
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    instructions = Column(Text, nullable=True)
     
-    # Activity tracking
-    interactions = Column(JSONB, nullable=True)  # Clicks, scrolls, pauses, etc.
-    notes = Column(Text, nullable=True)
+    # Relations
+    course_id = Column(Integer, ForeignKey('courses.id', ondelete='CASCADE'), nullable=True)
+    created_by_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     
-    # AI assistance
-    ai_interactions = Column(Integer, default=0)
-    ai_messages = Column(JSONB, nullable=True)
+    # Quiz settings
+    question_count = Column(Integer, default=10, nullable=False)
+    time_limit = Column(Integer, default=30, nullable=False)  # in minutes
+    max_attempts = Column(Integer, default=3, nullable=False)
+    passing_score = Column(Float, default=0.6, nullable=False)
+    difficulty = Column(Float, default=0.5, nullable=False)
+    
+    # Quiz type and status
+    quiz_type = Column(String(50), default='practice', nullable=False)
+    is_published = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    randomize_questions = Column(Boolean, default=True, nullable=False)
+    show_answers = Column(Boolean, default=True, nullable=False)
+    
+    # Statistics
+    total_attempts = Column(Integer, default=0, nullable=False)
+    average_score = Column(Float, default=0.0, nullable=False)
+    completion_rate = Column(Float, default=0.0, nullable=False)
+    
+    # Dates
+    available_from = Column(DateTime, nullable=True)
+    available_until = Column(DateTime, nullable=True)
     
     # Relationships
-    user = relationship('User', back_populates='study_sessions')
+    course = relationship("Course", back_populates="quizzes")
+    creator = relationship("User", back_populates="created_quizzes", foreign_keys=[created_by_id])
+    questions = relationship("Question", secondary=quiz_questions, back_populates="quizzes")
+    attempts = relationship("QuizAttempt", back_populates="quiz", cascade="all, delete-orphan")
     
+    # Computed properties
+    @hybrid_property
+    def total_points(self):
+        """Calculate total points for the quiz"""
+        return sum(q.points for q in self.questions)
+    
+    # Constraints
     __table_args__ = (
-        Index('ix_study_sessions_user_date', 'user_id', 'started_at'),
+        CheckConstraint('passing_score >= 0 AND passing_score <= 1', name='check_passing_score'),
+        CheckConstraint('difficulty >= 0 AND difficulty <= 1', name='check_quiz_difficulty'),
+        Index('idx_quiz_course_active', 'course_id', 'is_active'),
     )
+    
+    def __repr__(self):
+        return f"<Quiz(id={self.id}, title={self.title}, questions={self.question_count})>"
 
 
-class Assessment(Base, TimestampMixin):
-    """Assessment/Quiz model"""
-    __tablename__ = 'assessments'
+class Question(Base, TimestampMixin):
+    """Question model"""
+    __tablename__ = 'questions'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    module_id = Column(UUID(as_uuid=True), ForeignKey('modules.id', ondelete='SET NULL'), nullable=True)
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
     
-    # Assessment data
-    type = Column(String(50), nullable=False)  # quiz, exam, project
-    questions = Column(JSONB, nullable=False)
-    answers = Column(JSONB, nullable=False)
+    # Question content
+    question_text = Column(Text, nullable=False)
+    question_type = Column(SQLEnum(QuestionType), nullable=False)
     
-    # Results
-    score = Column(Float, nullable=False)
-    max_score = Column(Float, nullable=False)
-    percentage = Column(Float, nullable=False)
-    passed = Column(Boolean, nullable=False)
+    # Answer options (for multiple choice)
+    options = Column(JSON, default=[], nullable=True)
+    correct_answer = Column(Text, nullable=True)
+    
+    # Metadata
+    subject = Column(String(100), nullable=True)
+    topic = Column(String(100), nullable=True)
+    subtopic = Column(String(100), nullable=True)
+    
+    # Scoring and difficulty
+    points = Column(Integer, default=10, nullable=False)
+    difficulty = Column(Float, default=0.5, nullable=False)
+    discrimination = Column(Float, default=0.3, nullable=True)  # IRT parameter
+    
+    # Additional content
+    explanation = Column(Text, nullable=True)
+    hint = Column(Text, nullable=True)
+    resources = Column(JSON, default=[], nullable=True)
+    
+    # Media
+    image_url = Column(String(255), nullable=True)
+    audio_url = Column(String(255), nullable=True)
+    
+    # Usage statistics
+    usage_count = Column(Integer, default=0, nullable=False)
+    correct_count = Column(Integer, default=0, nullable=False)
+    average_time = Column(Float, default=0.0, nullable=False)  # in seconds
+    
+    # Tags for categorization
+    tags = Column(JSON, default=[], nullable=True)
+    
+    # Relationships
+    quizzes = relationship("Quiz", secondary=quiz_questions, back_populates="questions")
+    answers = relationship("Answer", back_populates="question", cascade="all, delete-orphan")
+    
+    # Computed property
+    @hybrid_property
+    def success_rate(self):
+        """Calculate success rate"""
+        if self.usage_count == 0:
+            return 0.0
+        return self.correct_count / self.usage_count
+    
+    # Constraints
+    __table_args__ = (
+        CheckConstraint('difficulty >= 0 AND difficulty <= 1', name='check_question_difficulty'),
+        CheckConstraint('points > 0', name='check_positive_points'),
+        Index('idx_question_subject_topic', 'subject', 'topic'),
+        Index('idx_question_type', 'question_type'),
+    )
+    
+    def __repr__(self):
+        return f"<Question(id={self.id}, type={self.question_type}, points={self.points})>"
+
+
+class Answer(Base, TimestampMixin):
+    """Student answer model"""
+    __tablename__ = 'answers'
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign keys
+    student_id = Column(Integer, ForeignKey('students.id', ondelete='CASCADE'), nullable=False)
+    question_id = Column(Integer, ForeignKey('questions.id', ondelete='CASCADE'), nullable=False)
+    quiz_id = Column(Integer, ForeignKey('quizzes.id', ondelete='CASCADE'), nullable=True)
+    attempt_id = Column(Integer, ForeignKey('quiz_attempts.id', ondelete='CASCADE'), nullable=True)
+    
+    # Answer content
+    given_answer = Column(Text, nullable=True)
+    is_correct = Column(Boolean, default=False, nullable=False)
+    points_earned = Column(Float, default=0.0, nullable=False)
     
     # Timing
-    started_at = Column(DateTime(timezone=True), nullable=False)
-    completed_at = Column(DateTime(timezone=True), nullable=False)
-    time_spent_seconds = Column(Integer, nullable=False)
+    time_taken = Column(Integer, default=0, nullable=False)  # in seconds
+    submitted_at = Column(DateTime, default=func.now(), nullable=False)
     
     # Feedback
-    feedback = Column(JSONB, nullable=True)
-    ai_evaluation = Column(JSONB, nullable=True)
+    feedback = Column(Text, nullable=True)
+    confidence_level = Column(Float, nullable=True)  # 0-1 scale
     
     # Relationships
-    user = relationship('User', back_populates='assessments')
+    student = relationship("Student", back_populates="answers")
+    question = relationship("Question", back_populates="answers")
+    attempt = relationship("QuizAttempt", back_populates="answers")
     
+    # Constraints
     __table_args__ = (
-        Index('ix_assessments_user_date', 'user_id', 'completed_at'),
-        CheckConstraint('score >= 0 AND score <= max_score', name='check_score_valid'),
-        CheckConstraint('percentage >= 0 AND percentage <= 100', name='check_percentage_valid'),
+        UniqueConstraint('student_id', 'question_id', 'attempt_id', name='unique_answer_per_attempt'),
+        Index('idx_answer_student_quiz', 'student_id', 'quiz_id'),
     )
+    
+    def __repr__(self):
+        return f"<Answer(id={self.id}, student_id={self.student_id}, correct={self.is_correct})>"
+
+
+class QuizAttempt(Base, TimestampMixin):
+    """Quiz attempt tracking"""
+    __tablename__ = 'quiz_attempts'
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign keys
+    student_id = Column(Integer, ForeignKey('students.id', ondelete='CASCADE'), nullable=False)
+    quiz_id = Column(Integer, ForeignKey('quizzes.id', ondelete='CASCADE'), nullable=False)
+    
+    # Attempt information
+    attempt_number = Column(Integer, default=1, nullable=False)
+    started_at = Column(DateTime, default=func.now(), nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    
+    # Scoring
+    score = Column(Float, default=0.0, nullable=False)
+    points_earned = Column(Float, default=0.0, nullable=False)
+    points_possible = Column(Float, default=0.0, nullable=False)
+    passed = Column(Boolean, default=False, nullable=False)
+    
+    # Status
+    is_completed = Column(Boolean, default=False, nullable=False)
+    time_spent = Column(Integer, default=0, nullable=False)  # in seconds
+    
+    # Relationships
+    quiz = relationship("Quiz", back_populates="attempts")
+    answers = relationship("Answer", back_populates="attempt", cascade="all, delete-orphan")
+    
+    # Constraints
+    __table_args__ = (
+        UniqueConstraint('student_id', 'quiz_id', 'attempt_number', name='unique_attempt'),
+        Index('idx_attempt_student_completed', 'student_id', 'is_completed'),
+    )
+    
+    def __repr__(self):
+        return f"<QuizAttempt(id={self.id}, student_id={self.student_id}, score={self.score})>"
 
 
 class Progress(Base, TimestampMixin):
-    """User progress tracking"""
+    """Student progress tracking"""
     __tablename__ = 'progress'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    module_id = Column(UUID(as_uuid=True), ForeignKey('modules.id', ondelete='CASCADE'), nullable=False)
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign keys
+    student_id = Column(Integer, ForeignKey('students.id', ondelete='CASCADE'), nullable=False)
+    course_id = Column(Integer, ForeignKey('courses.id', ondelete='CASCADE'), nullable=True)
+    module_id = Column(Integer, ForeignKey('modules.id', ondelete='CASCADE'), nullable=True)
     
     # Progress data
-    status = Column(String(20), default='not_started')  # not_started, in_progress, completed
-    progress_percentage = Column(Float, default=0.0)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
+    completed_topics = Column(JSON, default=[], nullable=True)
+    current_topic = Column(String(200), nullable=True)
     
-    # Tracking
-    time_spent_minutes = Column(Integer, default=0)
-    attempt_count = Column(Integer, default=0)
+    # Performance metrics
+    quiz_scores = Column(JSON, default=[], nullable=True)
+    average_score = Column(Float, default=0.0, nullable=False)
+    current_level = Column(Float, default=0.0, nullable=False)
+    
+    # Time tracking
+    time_spent = Column(Integer, default=0, nullable=False)  # in minutes
+    last_activity = Column(DateTime, default=func.now(), nullable=False)
+    
+    # Streaks and engagement
+    streak_days = Column(Integer, default=0, nullable=False)
+    total_sessions = Column(Integer, default=0, nullable=False)
     
     # Relationships
-    module = relationship('Module', back_populates='progress_records')
+    student = relationship("Student", back_populates="progress_records")
     
+    # Constraints
     __table_args__ = (
-        UniqueConstraint('user_id', 'module_id', name='uq_user_module_progress'),
-        Index('ix_progress_user_module', 'user_id', 'module_id'),
-        CheckConstraint('progress_percentage >= 0 AND progress_percentage <= 100', name='check_progress_percentage'),
+        UniqueConstraint('student_id', 'course_id', 'module_id', name='unique_progress'),
+        Index('idx_progress_student_course', 'student_id', 'course_id'),
     )
+    
+    def __repr__(self):
+        return f"<Progress(id={self.id}, student_id={self.student_id}, level={self.current_level})>"
 
 
-class Achievement(Base, TimestampMixin):
-    """Achievement/Badge model"""
-    __tablename__ = 'achievements'
+class LearningPath(Base, TimestampMixin):
+    """Personalized learning path"""
+    __tablename__ = 'learning_paths'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), unique=True, nullable=False)
-    description = Column(Text, nullable=False)
-    icon_url = Column(String(500), nullable=True)
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    path_id = Column(String(50), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
     
-    # Requirements
-    criteria = Column(JSONB, nullable=False)
-    points = Column(Integer, default=0)
+    # Foreign key
+    student_id = Column(Integer, ForeignKey('students.id', ondelete='CASCADE'), nullable=False)
     
-    # Rarity
-    rarity = Column(String(20), default='common')  # common, rare, epic, legendary
+    # Path information
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    
+    # Timeline
+    start_date = Column(DateTime, default=func.now(), nullable=False)
+    end_date = Column(DateTime, nullable=True)
+    total_weeks = Column(Integer, default=12, nullable=False)
+    current_week = Column(Integer, default=0, nullable=False)
+    
+    # Content
+    weekly_plans = Column(JSON, default=[], nullable=False)
+    milestones = Column(JSON, default=[], nullable=False)
+    assessment_schedule = Column(JSON, default=[], nullable=False)
+    
+    # Progress
+    progress_percentage = Column(Float, default=0.0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_completed = Column(Boolean, default=False, nullable=False)
+    
+    # Adaptation parameters
+    difficulty_adjustment = Column(Float, default=0.0, nullable=False)
+    pace_adjustment = Column(Float, default=1.0, nullable=False)
     
     # Relationships
-    users = relationship('User', secondary=user_achievements, back_populates='achievements')
+    student = relationship("Student", back_populates="learning_paths")
+    
+    # Constraints
+    __table_args__ = (
+        CheckConstraint('progress_percentage >= 0 AND progress_percentage <= 100', name='check_progress_percentage'),
+        CheckConstraint('current_week >= 0 AND current_week <= total_weeks', name='check_current_week'),
+        Index('idx_learning_path_student_active', 'student_id', 'is_active'),
+    )
+    
+    def __repr__(self):
+        return f"<LearningPath(id={self.id}, student_id={self.student_id}, progress={self.progress_percentage}%)>"
 
+
+# ==================== Additional Models ====================
 
 class Notification(Base, TimestampMixin):
-    """User notification model"""
+    """User notifications"""
     __tablename__ = 'notifications'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     
-    # Notification data
-    type = Column(String(50), nullable=False)
-    title = Column(String(255), nullable=False)
+    title = Column(String(200), nullable=False)
     message = Column(Text, nullable=False)
-    data = Column(JSONB, nullable=True)
+    type = Column(String(50), default='info', nullable=False)
     
-    # Status
-    is_read = Column(Boolean, default=False)
-    read_at = Column(DateTime(timezone=True), nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False)
+    read_at = Column(DateTime, nullable=True)
     
-    # Relationships
-    user = relationship('User', back_populates='notifications')
+    action_url = Column(String(255), nullable=True)
+    metadata = Column(JSON, default={}, nullable=True)
     
     __table_args__ = (
-        Index('ix_notifications_user_read', 'user_id', 'is_read'),
-        Index('ix_notifications_created', 'created_at'),
+        Index('idx_notification_user_unread', 'user_id', 'is_read'),
     )
 
 
-class AuditLog(Base):
-    """Audit log for tracking important actions"""
-    __tablename__ = 'audit_logs'
+class ActivityLog(Base, TimestampMixin):
+    """User activity logging"""
+    __tablename__ = 'activity_logs'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     
-    # Action details
     action = Column(String(100), nullable=False)
     entity_type = Column(String(50), nullable=True)
-    entity_id = Column(UUID(as_uuid=True), nullable=True)
+    entity_id = Column(Integer, nullable=True)
     
-    # Data
-    old_data = Column(JSONB, nullable=True)
-    new_data = Column(JSONB, nullable=True)
-    
-    # Request info
     ip_address = Column(String(45), nullable=True)
-    user_agent = Column(String(500), nullable=True)
+    user_agent = Column(String(255), nullable=True)
     
-    # Timestamp
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    metadata = Column(JSON, default={}, nullable=True)
     
     __table_args__ = (
-        Index('ix_audit_logs_user', 'user_id'),
-        Index('ix_audit_logs_action', 'action'),
-        Index('ix_audit_logs_entity', 'entity_type', 'entity_id'),
-        Index('ix_audit_logs_created', 'created_at'),
+        Index('idx_activity_user_action', 'user_id', 'action'),
+        Index('idx_activity_entity', 'entity_type', 'entity_id'),
     )
 
 
-class IRTItemBank(Base):
-    """IRT Item Bank for adaptive testing"""
-    __tablename__ = 'irt_item_bank'
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    item_id = Column(String(255), nullable=False, unique=True)
-    question_id = Column(UUID(as_uuid=True), ForeignKey('questions.id', ondelete='SET NULL'), nullable=True)
-    
-    # IRT Parameters (3PL Model)
-    difficulty = Column(Float, nullable=False)  # b parameter
-    discrimination = Column(Float, nullable=False, server_default='1.0')  # a parameter
-    guessing = Column(Float, nullable=False, server_default='0.2')  # c parameter
-    upper_asymptote = Column(Float, nullable=False, server_default='1.0')  # d parameter
-    
-    # Content metadata
-    subject = Column(String(100), nullable=False)
-    topic = Column(String(255), nullable=True)
-    grade_level = Column(Integer, nullable=True)
-    
-    # Usage statistics
-    usage_count = Column(Integer, nullable=False, server_default='0')
-    exposure_rate = Column(Float, nullable=False, server_default='0.0')
-    
-    # Calibration data
-    standard_errors = Column(JSONB, nullable=True)
-    fit_statistics = Column(JSONB, nullable=True)
-    calibration_sample_size = Column(Integer, nullable=True)
-    calibration_method = Column(String(50), nullable=True)
-    
-    # Status
-    is_active = Column(Boolean, nullable=False, server_default='true')
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
-    # Relationships
-    question = relationship("Question", back_populates="irt_parameters")
-    
-    __table_args__ = (
-        CheckConstraint('difficulty >= -4 AND difficulty <= 4', name='check_difficulty_range'),
-        CheckConstraint('discrimination >= 0.1 AND discrimination <= 3', name='check_discrimination_range'),
-        CheckConstraint('guessing >= 0 AND guessing <= 0.5', name='check_guessing_range'),
-        CheckConstraint('upper_asymptote >= 0.5 AND upper_asymptote <= 1', name='check_upper_asymptote_range'),
-        Index('idx_irt_item_bank_subject_topic', 'subject', 'topic'),
-        Index('idx_irt_item_bank_difficulty', 'difficulty'),
-        Index('idx_irt_item_bank_usage', 'usage_count', 'exposure_rate'),
-    )
+# ==================== Create all tables ====================
+
+def create_tables(engine):
+    """Create all database tables"""
+    Base.metadata.create_all(bind=engine)
 
 
-class IRTStudentAbility(Base):
-    """Student ability estimates from IRT"""
-    __tablename__ = 'irt_student_abilities'
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    student_id = Column(UUID(as_uuid=True), ForeignKey('student_profiles.id', ondelete='CASCADE'), nullable=False)
-    
-    # Ability estimate
-    theta = Column(Float, nullable=False)
-    standard_error = Column(Float, nullable=False)
-    confidence_lower = Column(Float, nullable=False)
-    confidence_upper = Column(Float, nullable=False)
-    estimation_method = Column(String(50), nullable=False)
-    
-    # Context
-    subject = Column(String(100), nullable=True)
-    topic = Column(String(255), nullable=True)
-    test_id = Column(String(255), nullable=True)
-    session_id = Column(String(255), nullable=True)
-    
-    # Test data
-    items_count = Column(Integer, nullable=False)
-    response_pattern = Column(ARRAY(Integer), nullable=True)
-    test_information = Column(Float, nullable=True)
-    reliability = Column(Float, nullable=True)
-    convergence_iterations = Column(Integer, nullable=True)
-    
-    # Metadata
-    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    metadata = Column(JSONB, nullable=True)
-    
-    # Relationships
-    student = relationship("StudentProfile", back_populates="irt_abilities")
-    
-    __table_args__ = (
-        CheckConstraint('theta >= -4 AND theta <= 4', name='check_theta_range'),
-        CheckConstraint('standard_error >= 0', name='check_se_positive'),
-        CheckConstraint('reliability >= 0 AND reliability <= 1', name='check_reliability_range'),
-        Index('idx_irt_abilities_student_subject', 'student_id', 'subject'),
-        Index('idx_irt_abilities_timestamp', 'timestamp'),
-    )
+def drop_tables(engine):
+    """Drop all database tables"""
+    Base.metadata.drop_all(bind=engine)
 
 
-class IRTTestSession(Base):
-    """Adaptive test sessions"""
-    __tablename__ = 'irt_test_sessions'
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    session_id = Column(String(255), nullable=False, unique=True)
-    student_id = Column(UUID(as_uuid=True), ForeignKey('student_profiles.id', ondelete='CASCADE'), nullable=False)
-    
-    # Test configuration
-    subject = Column(String(100), nullable=False)
-    topic = Column(String(255), nullable=True)
-    test_type = Column(String(50), nullable=False, server_default='adaptive')
-    max_items = Column(Integer, nullable=False, server_default='20')
-    min_items = Column(Integer, nullable=False, server_default='5')
-    target_se = Column(Float, nullable=False, server_default='0.3')
-    
-    # Current state
-    current_theta = Column(Float, nullable=False, server_default='0.0')
-    current_se = Column(Float, nullable=False, server_default='1.0')
-    items_administered = Column(ARRAY(String), nullable=False, server_default='{}')
-    responses = Column(ARRAY(Integer), nullable=False, server_default='{}')
-    response_times = Column(ARRAY(Float), nullable=True)
-    current_item = Column(String(255), nullable=True)
-    
-    # Final results
-    final_theta = Column(Float, nullable=True)
-    final_se = Column(Float, nullable=True)
-    
-    # Status
-    status = Column(String(50), nullable=False, server_default='in_progress')
-    start_time = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    end_time = Column(DateTime(timezone=True), nullable=True)
-    time_limit = Column(Interval, nullable=True)
-    
-    # Metadata
-    metadata = Column(JSONB, nullable=True)
-    
-    # Relationships
-    student = relationship("StudentProfile", back_populates="irt_sessions")
-    
-    __table_args__ = (
-        CheckConstraint('max_items >= min_items', name='check_items_range'),
-        CheckConstraint('target_se > 0 AND target_se <= 1', name='check_target_se_range'),
-        Index('idx_irt_sessions_student', 'student_id'),
-        Index('idx_irt_sessions_status', 'status'),
-    )
-
-
-class IRTCalibrationHistory(Base):
-    """History of item calibrations"""
-    __tablename__ = 'irt_calibration_history'
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    calibration_id = Column(String(255), nullable=False)
-    
-    # Calibration details
-    subject = Column(String(100), nullable=False)
-    topic = Column(String(255), nullable=True)
-    calibration_method = Column(String(50), nullable=False)
-    sample_size = Column(Integer, nullable=False)
-    items_calibrated = Column(Integer, nullable=False)
-    
-    # Results
-    convergence_status = Column(String(50), nullable=False)
-    fit_statistics = Column(JSONB, nullable=True)
-    parameters_before = Column(JSONB, nullable=True)
-    parameters_after = Column(JSONB, nullable=False)
-    calibration_time = Column(Float, nullable=False)
-    
-    # Metadata
-    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    performed_by = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    
-    # Relationships
-    user = relationship("User")
+# Export all models
+__all__ = [
+    'Base',
+    'User', 'Student', 'Teacher',
+    'Course', 'Module',
+    'Quiz', 'Question', 'Answer', 'QuizAttempt',
+    'Progress', 'LearningPath',
+    'Notification', 'ActivityLog',
+    'UserRole', 'DifficultyLevel', 'QuestionType', 'LearningStyle',
+    'create_tables', 'drop_tables'
+]
