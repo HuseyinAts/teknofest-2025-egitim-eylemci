@@ -1,0 +1,105 @@
+# Turkish LLM Pipeline - Git Ignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+turkish_llm_env/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Model Files (Large)
+*.bin
+*.safetensors
+*.pt
+*.pth
+models/
+checkpoints/
+*.model
+
+# Training Output
+training_output/
+turkish_llm_output/
+turkish_llm_pipeline/
+analysis_results/
+vocab_analysis/
+qwen3_turkish_extended/
+ensemble_*/
+
+# Dataset Cache
+dataset_cache/
+*.jsonl
+*.json.gz
+*.csv.gz
+data/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Memory profiling
+*.prof
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Environment variables
+.env
+.env.local
+
+# Google Colab specific
+.colab/
+
+# Large analysis files
+*_analysis_*.json
+*_metrics_*.json
+performance_report*.json
+
+# But keep essential files
+!requirements.txt
+!README.md
+!GITHUB_USAGE_GUIDE.md
+!ULTRA_ANALIZ_RAPORU.md
+!setup_*.py
+!quick_test_runner.py
