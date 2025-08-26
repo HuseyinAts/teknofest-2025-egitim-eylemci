@@ -2,7 +2,7 @@ import { createApi, fetchBaseQuery, retry } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
 
 const baseQuery = fetchBaseQuery({
-  baseUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
+  baseUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api',
   credentials: 'include',
   prepareHeaders: (headers, { getState }) => {
     const token = (getState() as RootState).auth?.token;
@@ -199,7 +199,6 @@ export const apiSlice = createApi({
       }),
       providesTags: ['Notification'],
       transformResponse: (response: any) => response.data,
-      pollingInterval: 60000,
     }),
     
     markNotificationRead: builder.mutation({

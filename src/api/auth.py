@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Security settings
 settings = get_settings()
-SECRET_KEY = settings.secret_key or "your-secret-key-here"
+SECRET_KEY = settings.secret_key.get_secret_value() if settings.secret_key else None
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is required")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

@@ -2,11 +2,15 @@ import { Middleware } from '@reduxjs/toolkit';
 
 const actionTypeMaxLength = 50;
 
-export const loggerMiddleware: Middleware = (store) => (next) => (action) => {
+export const loggerMiddleware: Middleware = (store) => (next) => (action: any) => {
+  if (process.env.NODE_ENV !== 'development') {
+    return next(action);
+  }
+
   const startTime = performance.now();
   
   console.group(
-    `%c action %c${action.type.substring(0, actionTypeMaxLength)}`,
+    `%c action %c${action.type?.substring(0, actionTypeMaxLength) || 'UNKNOWN'}`,
     'color: gray; font-weight: lighter',
     'color: inherit; font-weight: bold'
   );

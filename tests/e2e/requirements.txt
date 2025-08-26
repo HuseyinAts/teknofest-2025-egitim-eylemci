@@ -1,0 +1,31 @@
+# E2E Test Dependencies
+playwright==1.40.0
+pytest-playwright==0.4.3
+httpx==0.25.2
+docker==7.0.0
+psycopg2-binary==2.9.9
+pytest-asyncio==0.21.1
+pytest-xdist==3.5.0
+pytest-timeout==2.2.0
+pytest-html==4.1.1
+allure-pytest==2.13.2
+pytest-cov==4.1.0
+
+# API testing
+aiohttp==3.9.1
+asyncpg==0.29.0
+
+# Test data generation  
+faker==20.1.0
+factory-boy==3.3.0
+
+# Performance testing
+locust==2.17.0
+memory-profiler==0.61.0
+
+# Monitoring and reporting
+pytest-json-report==1.5.0
+
+# Utilities
+python-dotenv==1.0.0
+pyyaml==6.0.1

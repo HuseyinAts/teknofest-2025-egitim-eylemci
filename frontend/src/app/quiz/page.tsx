@@ -25,8 +25,6 @@ export default function QuizPage() {
   ];
 
   const handleQuizComplete = (score: number, answers: any[]) => {
-    console.log('Quiz completed with score:', score);
-    console.log('Answers:', answers);
     setActiveQuiz(false);
   };
 

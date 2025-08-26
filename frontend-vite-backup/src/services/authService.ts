@@ -114,8 +114,8 @@ class AuthService {
           success: true,
           message: 'Giriş başarılı',
           user: mockUser,
-          token: 'mock-jwt-token-' + Date.now(),
-          refreshToken: 'mock-refresh-token-' + Date.now(),
+          token: '',  // Token must be provided by backend
+          refreshToken: '',  // Token must be provided by backend
         };
 
         this.setToken(mockResponse.token!);
@@ -174,8 +174,8 @@ class AuthService {
           success: true,
           message: 'Kayıt başarılı',
           user: mockUser,
-          token: 'mock-jwt-token-' + Date.now(),
-          refreshToken: 'mock-refresh-token-' + Date.now(),
+          token: '',  // Token must be provided by backend
+          refreshToken: '',  // Token must be provided by backend
         };
 
         this.setToken(mockResponse.token!);
@@ -247,7 +247,7 @@ class AuthService {
             success: true,
             message: 'Token yenilendi',
             user,
-            token: 'mock-jwt-token-refreshed-' + Date.now(),
+            token: '',  // Token must be provided by backend
             refreshToken: 'mock-refresh-token-refreshed-' + Date.now(),
           };
 

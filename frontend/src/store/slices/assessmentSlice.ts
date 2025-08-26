@@ -84,7 +84,7 @@ const initialState: AssessmentState = {
 
 export const fetchAssessments = createAsyncThunk(
   'assessment/fetchAll',
-  async (filters?: { type?: string; status?: string }, { rejectWithValue }) => {
+  async (filters: { type?: string; status?: string } = {}, { rejectWithValue }) => {
     try {
       const params = new URLSearchParams(filters as any);
       const response = await axios.get(`/api/assessments?${params}`);

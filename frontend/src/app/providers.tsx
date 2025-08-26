@@ -65,7 +65,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           </I18nextProvider>
         </ThemeProvider>
         {process.env.NODE_ENV === 'development' && (
-          <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />
+          <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" />
         )}
       </QueryClientProvider>
     </StoreProvider>

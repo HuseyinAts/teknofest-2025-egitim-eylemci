@@ -1,3 +1,6 @@
+# TEKNOFEST 2025 - Turkish LLM Training System
+# Comprehensive .gitignore for Python ML projects
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -20,13 +23,14 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
 # PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -44,10 +48,8 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
-*.py.cover
 .hypothesis/
 .pytest_cache/
-cover/
 
 # Translations
 *.mo
@@ -57,7 +59,6 @@ cover/
 *.log
 local_settings.py
 db.sqlite3
-db.sqlite3-journal
 
 # Flask stuff:
 instance/
@@ -70,8 +71,10 @@ instance/
 docs/_build/
 
 # PyBuilder
-.pybuilder/
 target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
 
 # IPython
 profile_default/
@@ -80,28 +83,14 @@ ipython_config.py
 # pyenv
 .python-version
 
-# pipenv
-#Pipfile.lock
-
-# poetry
-#poetry.lock
-
-# pdm
-.pdm-python
-.pdm-build/
-
-# PEP 582
-__pypackages__/
-
-# Celery stuff
+# celery beat schedule file
 celerybeat-schedule
-celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
 
 # Environments
-.envrc
+.env
 .venv
 env/
 venv/
@@ -127,146 +116,128 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#.idea/
-
-# Ruff
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Cursor
-.cursorignore
-.cursorindexingignore
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# IDE specific
-.idea/
-.vscode/
-*.code-workspace
-*.iml
-.project
-.classpath
-.settings/
-
-# OS specific
-.DS_Store
-.AppleDouble
-.LSOverride
-Thumbs.db
-Thumbs.db:encryptable
-ehthumbs.db
-ehthumbs_vista.db
-*.stackdump
-[Dd]esktop.ini
-$RECYCLE.BIN/
-*.lnk
-
-# Model files
-models/**/*.bin
-models/**/*.pt
-models/**/*.pth
-models/**/*.safetensors
-models/**/*.h5
-models/**/*.ckpt
-*.bin
-*.pt
+# ML/AI Specific Files
+# Model files and checkpoints
 *.pth
+*.pt
+*.bin
 *.safetensors
+*.ckpt
 *.h5
-*.pdf
+*.pkl
+*.pickle
+*.joblib
 
-# Data files (keep structure, ignore large files)
-data/raw/**
-!data/raw/.gitkeep
-data/processed/large_files/**
-!data/processed/.gitkeep
-!data/processed/competition_dataset.csv
-!data/processed/competition_dataset.json
-!data/processed/competition_dataset.jsonl
-data/synthetic/**
-!data/synthetic/.gitkeep
+# Dataset files
+*.csv
+*.json
+*.jsonl
+*.parquet
+*.arrow
+*.txt
+!requirements.txt
+!README.txt
 
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-*.db-journal
-*.db-shm
-*.db-wal
-resources.db
-students.db
-teknofest.db
-
-# Log files
+# Large directories
+data/
+datasets/
+models/
+checkpoints/
+outputs/
+results/
 logs/
-*.log
-*.log.*
+wandb/
+mlruns/
 
-# Environment files
-.env
-.env.local
-.env.development
-.env.test
-.env.staging
-.env.production.local
-
-# Keep these
-!.env.example
-!.env.production
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*.swp
-*.swo
-*~
-.~*
-nul
+# Tokenizer files
+tokenizer/
+vocab/
+*.vocab
+*.model
 
 # Cache directories
 .cache/
-*.cache
-.ipynb_checkpoints/
-model_cache/
-huggingface_cache/
+.transformers_cache/
+.huggingface/
+__pycache__/
 
-# Secrets and credentials
-*.pem
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker files
+docker-compose.override.yml
+.dockerignore
+
+# Kubernetes
+*.yaml
+*.yml
+!docker-compose.yml
+!.github/workflows/*.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Credentials and secrets
 *.key
+*.pem
 *.crt
-*.p12
 secrets/
-credentials/
-
-# Docker volumes
-docker-volumes/
-
-# Test databases
-test_*.db
-*_test.db
+.secrets
+credentials.json
+config.json
+!configs/example.json
 
 # Backup files
-backup/
+*.bak
 *.backup
+*.old
 
-# Node modules (if any frontend)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Turkish LLM Specific
+# Training outputs
+qwen3_turkish_*/
+turkish_llm_output/
+final_turkish_llm/
+training_logs/
+evaluation_results/
 
-# Custom project specific
-claude_desktop_config_local.json
+# Colab files
+*.ipynb
+!notebooks/examples/*.ipynb
+
+# Large model files
+Qwen3-8B/
+extended_model/
+fine_tuned_model/
+
+# Memory dumps and profiles
+*.prof
+*.profile
+memory_profile_*
+
+# Error logs
+error_*.log
+crash_*.log
+
+# Configuration overrides
+local_config.py
+override_config.yaml
+
+# Test outputs
+test_outputs/
+benchmark_results/

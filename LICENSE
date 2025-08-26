@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 Hüseyin Ateş
+Copyright (c) 2024 TEKNOFEST 2025 - Turkish LLM Training System
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,33 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Additional Acknowledgments
+
+This project includes contributions and optimizations specifically designed for:
+- TEKNOFEST 2025 Turkish Technology Competition
+- Turkish Language Processing and NLP Applications
+- Educational AI Assistant Development
+- Google Colab Pro+ A100 GPU Optimization
+
+### Third-Party Components
+
+This software makes use of the following open-source components:
+- Qwen3-8B Model (Apache 2.0 License) - Alibaba Cloud
+- Transformers Library (Apache 2.0 License) - Hugging Face
+- PyTorch (BSD License) - Meta AI
+- Datasets Library (Apache 2.0 License) - Hugging Face
+- PEFT Library (Apache 2.0 License) - Hugging Face
+
+### Turkish Language Resources
+
+Special thanks to the Turkish language processing community and resources:
+- Turkish Language Association (TDK) for linguistic guidelines
+- Turkish academic institutions for language research
+- Open Turkish datasets and corpora contributors
+
+### TEKNOFEST 2025
+
+This project is developed specifically for TEKNOFEST 2025 competition in the
+Educational AI and Language Technologies category, focusing on Turkish language
+model development and educational applications.

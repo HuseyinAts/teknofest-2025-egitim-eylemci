@@ -26,7 +26,10 @@ from src.api.study_buddy_routes import router as study_buddy_router
 from src.api.database_routes import router as database_router
 from src.core.offline_support import OfflineManager, OfflineMiddleware
 from src.core.security import SecurityMiddleware, SQLInjectionProtection
+from src.core.security_headers import setup_security_middleware
 from src.core.authentication import jwt_auth, get_current_user, UserLogin, UserRegister, TokenResponse
+from src.core.production_rate_limits import apply_production_limits
+from src.core.metrics import init_metrics, metrics_endpoint, metrics_middleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -83,9 +86,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
     
-    # SECURITY: Add security middleware first
+    # SECURITY: Add comprehensive security middleware
+    setup_security_middleware(app, settings)
     app.add_middleware(SecurityMiddleware, settings=settings)
     
+    # CORS must be added after security headers
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -99,6 +104,20 @@ def create_app() -> FastAPI:
     db_session = SessionLocal()
     offline_manager = OfflineManager(db_session)
     app.add_middleware(OfflineMiddleware, offline_manager=offline_manager)
+    
+    # Apply production rate limits
+    if settings.is_production() or settings.rate_limit_enabled:
+        apply_production_limits(app)
+        logger.info("Production rate limits applied")
+    
+    # Initialize metrics
+    init_metrics(
+        app_name=settings.app_name,
+        version=settings.app_version,
+        environment=settings.app_env.value
+    )
+    metrics_middleware(app)
+    logger.info("Metrics collection initialized")
     
     return app
 
@@ -162,6 +181,12 @@ async def health_check(settings: Settings = Depends(get_settings)):
         "debug": settings.app_debug,
         "issues": issues
     }
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint"""
+    return await metrics_endpoint()
 
 
 @app.post("/api/v1/learning-style")

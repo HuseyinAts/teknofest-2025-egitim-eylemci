@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Timer, Trophy, Target, CheckCircle, XCircle, ChevronLeft, ChevronRight } from '@mui/icons-material';
+import { Timer, EmojiEvents as Trophy, GpsFixed as Target, CheckCircle, Cancel as XCircle, ChevronLeft, ChevronRight } from '@mui/icons-material';
 
 interface Question {
   id: number;
@@ -73,7 +73,7 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({
   const [isAnswered, setIsAnswered] = useState(false);
   const [score, setScore] = useState(0);
   const [showFeedback, setShowFeedback] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout>();
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     timerRef.current = setInterval(() => {

@@ -12,7 +12,7 @@ interface UseIntersectionObserverProps {
  */
 export function useIntersectionObserver<T extends Element>(
   options: UseIntersectionObserverProps = {}
-): [RefObject<T>, boolean] {
+): [RefObject<T | null>, boolean] {
   const {
     threshold = 0,
     root = null,
@@ -20,7 +20,7 @@ export function useIntersectionObserver<T extends Element>(
     triggerOnce = false,
   } = options;
 
-  const targetRef = useRef<T>(null);
+  const targetRef = useRef<T | null>(null);
   const [isIntersecting, setIsIntersecting] = useState(false);
   const [hasIntersected, setHasIntersected] = useState(false);
 

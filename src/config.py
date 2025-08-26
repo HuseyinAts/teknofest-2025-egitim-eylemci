@@ -184,11 +184,12 @@ class Settings(BaseSettings):
     # DATABASE SETTINGS
     # ==========================================
     database_url: Optional[str] = Field(
-        default="postgresql://postgres:password@localhost:5432/teknofest_dev",
-        env="DATABASE_URL"
+        default="postgresql://teknofest:password@localhost:5432/teknofest_db",
+        env="DATABASE_URL",
+        description="Required: PostgreSQL connection URL"
     )
     async_database_url: Optional[str] = Field(
-        default="sqlite+aiosqlite:///./teknofest.db",
+        default="postgresql+asyncpg://teknofest:password@localhost:5432/teknofest_db",
         env="ASYNC_DATABASE_URL"
     )
     database_pool_size: int = Field(default=20, env="DATABASE_POOL_SIZE", ge=1, le=100)
@@ -214,6 +215,20 @@ class Settings(BaseSettings):
             # Production should have larger pool
             return max(20, v or 20)
         return v or 5
+    
+    @field_validator("database_url", "async_database_url")
+    def validate_database_urls(cls, v, info):
+        """Ensure PostgreSQL is used in production"""
+        if PYDANTIC_V2:
+            values = info.data if hasattr(info, 'data') else {}
+        else:
+            values = info
+        if values.get("app_env") == Environment.PRODUCTION:
+            if v and "sqlite" in v:
+                raise ValueError("SQLite is not allowed in production. Use PostgreSQL.")
+            if not v or not v.startswith(("postgresql://", "postgresql+asyncpg://")):
+                raise ValueError("PostgreSQL is required in production")
+        return v
     
     @field_validator("database_pool_pre_ping")
     def validate_pool_pre_ping(cls, v, info):

@@ -1,5 +1,6 @@
 """
-Comprehensive tests for API Endpoints
+API Endpoint Tests
+TEKNOFEST 2025 - Eğitim Teknolojileri
 """
 import pytest
 import json

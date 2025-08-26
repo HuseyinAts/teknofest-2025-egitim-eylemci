@@ -14,6 +14,15 @@ import pickle
 import numpy as np
 from tqdm import tqdm
 
+# Import trie optimization
+try:
+    import sys
+    sys.path.append(str(Path(__file__).parent.parent.parent / 'turkish_tokenizer'))
+    from trie_suffix_optimization import TurkishSuffixTrie, OptimizedTurkishBPE
+    TRIE_OPTIMIZATION_AVAILABLE = True
+except ImportError:
+    TRIE_OPTIMIZATION_AVAILABLE = False
+
 
 @dataclass
 class TokenizerConfig:
@@ -59,6 +68,16 @@ class TurkishBPETokenizer:
         # Pre-compiled regex patterns
         self.word_tokenizer = re.compile(self.config.pre_tokenizer_regex)
         self.turkish_patterns = self._compile_turkish_patterns()
+        
+        # Initialize trie optimization if available
+        if TRIE_OPTIMIZATION_AVAILABLE:
+            self.suffix_trie = TurkishSuffixTrie()
+            self.trie_optimization = True
+            print("✅ Trie-based suffix optimization enabled - O(log n) performance!")
+        else:
+            self.suffix_trie = None
+            self.trie_optimization = False
+            print("⚠️ Trie optimization not available - using O(n) linear search")
         
     def _bytes_to_unicode(self) -> Dict[int, str]:
         """Create byte to unicode mapping for byte-level BPE"""
@@ -136,29 +155,37 @@ class TurkishBPETokenizer:
         return text
     
     def _handle_turkish_suffixes(self, word: str) -> str:
-        """Handle Turkish agglutinative suffixes"""
-        # Common Turkish suffixes that might need special handling
-        suffixes = [
-            "lar", "ler",  # Plural
-            "dan", "den", "tan", "ten",  # Ablative
-            "da", "de", "ta", "te",  # Locative
-            "nın", "nin", "nun", "nün",  # Genitive
-            "ı", "i", "u", "ü",  # Accusative
-            "a", "e",  # Dative
-            "la", "le",  # Instrumental
-            "ca", "ce", "ça", "çe",  # Adverbial
-            "lı", "li", "lu", "lü",  # With/having
-            "sız", "siz", "suz", "süz",  # Without
-            "lik", "lık", "luk", "lük",  # -ness
-        ]
+        """Handle Turkish agglutinative suffixes with trie optimization"""
         
-        # Mark suffix boundaries for better subword learning
-        for suffix in suffixes:
-            if word.endswith(suffix) and len(word) > len(suffix) + 2:
-                # Insert subword boundary marker
-                pos = len(word) - len(suffix)
-                word = word[:pos] + self.config.continuing_subword_prefix + word[pos:]
-                break
+        if self.trie_optimization and self.suffix_trie:
+            # Use O(log n) trie-based suffix recognition
+            suffix, suffix_type, pos = self.suffix_trie.find_longest_suffix(word)
+            
+            if suffix and pos > 0:  # Found a valid suffix
+                # Mark suffix boundary for better subword learning
+                return word[:pos] + self.config.continuing_subword_prefix + word[pos:]
+        else:
+            # Fallback to O(n) linear search
+            suffixes = [
+                "lar", "ler",  # Plural
+                "dan", "den", "tan", "ten",  # Ablative
+                "da", "de", "ta", "te",  # Locative
+                "nın", "nin", "nun", "nün",  # Genitive
+                "ı", "i", "u", "ü",  # Accusative
+                "a", "e",  # Dative
+                "la", "le",  # Instrumental
+                "ca", "ce", "ça", "çe",  # Adverbial
+                "lı", "li", "lu", "lü",  # With/having
+                "sız", "siz", "suz", "süz",  # Without
+                "lik", "lık", "luk", "lük",  # -ness
+            ]
+            
+            # O(n) linear search through suffixes
+            for suffix in suffixes:
+                if word.endswith(suffix) and len(word) > len(suffix) + 2:
+                    # Insert subword boundary marker
+                    pos = len(word) - len(suffix)
+                    return word[:pos] + self.config.continuing_subword_prefix + word[pos:]
                 
         return word
     

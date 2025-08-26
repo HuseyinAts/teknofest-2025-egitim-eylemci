@@ -318,13 +318,14 @@ def receive_reset(dbapi_conn, connection_record):
     """
     logger.debug(f"Connection reset: PID={connection_record.info.get('pid')}")
 
-@event.listens_for(Pool, "overflow_created")
-def receive_overflow_created(dbapi_conn, connection_record):
-    """
-    Event listener for overflow connection creation.
-    """
-    pool_metrics.overflow_created += 1
-    logger.info(f"Overflow connection created: Total={pool_metrics.overflow_created}")
+# NOTE: overflow_created event not available in all SQLAlchemy versions
+# @event.listens_for(Pool, "overflow_created")
+# def receive_overflow_created(dbapi_conn, connection_record):
+#     """
+#     Event listener for overflow connection creation.
+#     """
+#     pool_metrics.overflow_created += 1
+#     logger.info(f"Overflow connection created: Total={pool_metrics.overflow_created}")
 
 
 # Create session factories

@@ -1,11 +1,9 @@
-import type { NextConfig } from "next";
-import withBundleAnalyzer from '@next/bundle-analyzer';
-
-const bundleAnalyzer = withBundleAnalyzer({
+const withBundleAnalyzer = require('@next/bundle-analyzer')({
   enabled: process.env.ANALYZE === 'true',
 });
 
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   
@@ -42,6 +40,31 @@ const nextConfig: NextConfig = {
           { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },
         ],
       },
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=()',
+          },
+        ],
+      },
     ];
   },
   
@@ -54,4 +77,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default bundleAnalyzer(nextConfig);
+module.exports = withBundleAnalyzer(nextConfig);
