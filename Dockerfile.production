@@ -1,5 +1,5 @@
 # Multi-stage production Dockerfile with optimizations
-FROM python:3.11-slim AS builder
+FROM python:3.13-slim AS builder
 
 # Build arguments
 ARG BUILD_ENV=production
@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
         setproctitle
 
 # Production stage
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Labels for metadata
 LABEL maintainer="TEKNOFEST Team"
