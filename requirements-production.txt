@@ -27,7 +27,7 @@ email-validator==2.1.0
 cryptography==41.0.7
 
 # AI/ML Dependencies
-torch==2.1.2
+torch==2.8.0
 transformers==4.36.2
 tokenizers==0.15.0
 sentencepiece==0.1.99
