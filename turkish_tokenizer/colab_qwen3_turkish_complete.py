@@ -1113,7 +1113,7 @@ class ColabQwen3TurkishPipeline:
             import torch
             from transformers import (
                 AutoTokenizer, AutoModelForCausalLM, TrainingArguments, 
-                Trainer, DataCollatorForLanguageModeling
+                Trainer, DataCollatorForLanguageModeling, TrainerCallback
             )
             from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
             from datasets import Dataset
@@ -1255,7 +1255,6 @@ class ColabQwen3TurkishPipeline:
                         lora_alpha=256,  # User preferred alpha
                         lora_dropout=0.05,  # User preferred dropout
                         enable_turkish_features=True,
-                        turkish_pattern_preservation=True,
                         vowel_harmony_weight=0.1,
                         morphology_preservation_weight=0.15,
                         turkish_frequency_boost=1.2,
@@ -1498,9 +1497,10 @@ class ColabQwen3TurkishPipeline:
             # Create advanced trainer with Sophia optimizer and gradient compression
             class AdvancedTrainer(Trainer):
                 def __init__(self, *args, **kwargs):
-                    super().__init__(*args, **kwargs)
+                    # Pop custom parameters before calling super()
                     self.gradient_compression = kwargs.pop('gradient_compression', True)
                     self.compression_ratio = kwargs.pop('compression_ratio', 0.1)
+                    super().__init__(*args, **kwargs)
                 
                 def create_optimizer(self):
                     """Use REAL Ultra Turkish Sophia optimizer (not fake AdamW!)"""
