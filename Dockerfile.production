@@ -1,5 +1,5 @@
 # Multi-stage production Dockerfile with security hardening
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 # Build arguments
 ARG BUILD_ENV=production
@@ -44,7 +44,7 @@ COPY --from=builder /wheels /scan
 RUN trivy fs --severity HIGH,CRITICAL --no-progress --exit-code 0 /scan
 
 # Production stage
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Labels for metadata
 LABEL maintainer="TEKNOFEST Team"
