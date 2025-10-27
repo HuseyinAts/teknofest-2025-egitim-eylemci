@@ -336,7 +336,7 @@ jobs:
     
     steps:
     - name: Download all test results
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v6
 
     - name: Publish test results
       uses: EnricoMi/publish-unit-test-result-action@v2
@@ -369,7 +369,7 @@ jobs:
     
     steps:
     - name: Download test artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v6
 
     - name: Setup Pages
       uses: actions/configure-pages@v3
